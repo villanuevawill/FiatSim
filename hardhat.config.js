@@ -20,7 +20,16 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
  * @type import('hardhat/config').HardhatUserConfig
  */
 module.exports = {
-  solidity: "0.7.3",
+  solidity: {
+    compilers: [
+      {
+        version: "0.7.3",
+      },
+      {
+        version: "0.8.0",
+      }
+    ]
+  },
   networks: {
     hardhat: {
       hardfork: "london",
@@ -32,7 +41,7 @@ module.exports = {
       ],
       forking: {
         url: 'ALCHEMY_KEY',
-        blockNumber: 13712040
+        blockNumber: 14738270
       },
     },
   },
