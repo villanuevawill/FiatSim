@@ -1,6 +1,7 @@
 require("dotenv").config();
 require("@nomiclabs/hardhat-ethers");
 require("@nomiclabs/hardhat-waffle");
+require('@openzeppelin/hardhat-upgrades');
 
 // This is a sample Hardhat task. To learn how to create your own go to
 // https://hardhat.org/guides/create-task.html
@@ -27,6 +28,9 @@ module.exports = {
       },
       {
         version: "0.8.0",
+      },
+      {
+        version: "0.8.4",
       }
     ]
   },
