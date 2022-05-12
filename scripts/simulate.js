@@ -5,10 +5,13 @@
 // Runtime Environment's members available in the global scope.
 const hre = require("hardhat");
 
+const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
+
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
 const daiPTAddress = "0xCCE00da653eB50133455D4075fE8BcA36750492c";
 const balancerVaultAddress = "0xba12222222228d8ba445958a75a0704d566bf2c8";
+const fiatActionAddress = "0x0021DCEeb93130059C2BbBa7DacF14fe34aFF23c";
 
 const elementDaiTrancheAddresses = {
   "address": "0xCCE00da653eB50133455D4075fE8BcA36750492c",
@@ -49,7 +52,7 @@ async function main() {
 
   console.log("confirmed transferred balance: ", balanceOfSigner);
 
-  const ccPool =  await hre.ethers.getContractAt("IVault", balancerVaultAddress, signer);
+  const ccPool =  await new hre.ethers.Contract(balancerVaultAddress, ivault, signer);
 
   const singleSwap = {
     poolId: elementDaiTrancheAddresses.ptPool.poolId,
@@ -74,6 +77,9 @@ async function main() {
   const daiERC20 = await hre.ethers.getContractAt("ERC20", daiAddress, signer);
   await daiERC20.approve(balancerVaultAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   await ccPool.swap(singleSwap, funds, limit, deadline);
+
+  const fiatActions = await hre.ethers
+  .getContractAt("VaultEPTActions", fiatActionAddress, signer);
 
   const ptBalance = await ptERC20.balanceOf(signer.address);
   console.log("PTs Acquired: ", hre.ethers.utils.formatUnits(ptBalance, decimals));
