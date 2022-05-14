@@ -13,6 +13,7 @@ const daiPTAddress = "0xCCE00da653eB50133455D4075fE8BcA36750492c";
 const balancerVaultAddress = "0xba12222222228d8ba445958a75a0704d566bf2c8";
 const fiatActionAddress = "0x0021DCEeb93130059C2BbBa7DacF14fe34aFF23c";
 const fiatDaiVaultAddress = "0xb6922A39C85a4E838e1499A8B7465BDca2E49491";
+const fiatProxyFactoryAddress = "0x7Ee06e44C4764A49346290CD9a2267DB6daD7214";
 
 const elementDaiTrancheAddresses = {
   "address": "0xCCE00da653eB50133455D4075fE8BcA36750492c",
@@ -82,19 +83,69 @@ async function main() {
   const ptBalance = await ptERC20.balanceOf(signer.address);
   console.log("PTs Acquired: ", hre.ethers.utils.formatUnits(ptBalance, decimals));
 
-  const fiatActions = await hre.ethers
-  .getContractAt("VaultEPTActions", fiatActionAddress, signer);
   const vault = await hre.ethers.getContractAt("IVaultEPT", fiatDaiVaultAddress, signer);
 
   // This method of calculating takes into account the accumulator interest
   // this means you can never be liquidated
   const fairPrice = await vault.fairPrice(0, true, false);
+  console.log("original fair price: ", fairPrice);
 
   // Max debt that can be acquired
   const maxDebt = dsMath.wmul(ptBalance, fairPrice);
   console.log("Fair Price: ", hre.ethers.utils.formatUnits(fairPrice, decimals));
   console.log("Max Debt: ", hre.ethers.utils.formatUnits(maxDebt, decimals));
+
+  const fiatActions = await hre.ethers
+  .getContractAt("VaultEPTActions", fiatActionAddress, signer);
+
+  const proxyFactory = await hre.ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
+  const receipt = await proxyFactory.deployFor(signer.address);
+  const receiptData = await receipt.wait();
+  const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
+
+  const userProxy = await hre.ethers.getContractAt("IPRBProxy", proxyAddress);
+  await daiERC20.approve(proxyAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  await ptERC20.approve(proxyAddress, proxyAddress);
+
+  const functionData = fiatActions.interface.encodeFunctionData(
+    'modifyCollateralAndDebt',
+    [
+      fiatDaiVaultAddress,
+      daiPTAddress,
+      0,
+      proxyAddress,
+      signer.address,
+      signer.address,
+      ptBalance,
+      hre.ethers.utils.parseUnits("92000", 18)
+    ]
+  );
+
+  // For now comment out if we want to be more efficient and use this later
+  // const functionData = fiatActions.interface.encodeFunctionData(
+  //   'buyCollateralAndModifyDebt',
+  //   [
+  //     fiatDaiVaultAddress,
+  //     proxyAddress,
+  //     signer.address,
+  //     signer.address,
+  //     hre.ethers.utils.parseUnits("1000", 18),
+  //     hre.ethers.utils.parseUnits("500", 18),
+  //     [
+  //       balancerVaultAddress,
+  //       elementDaiTrancheAddresses.ptPool.poolId,
+  //       daiAddress,
+  //       daiPTAddress,
+  //       hre.ethers.utils.parseUnits("1000", 18),
+  //       deadline,
+  //       hre.ethers.utils.parseUnits("1000", 18),
+  //     ]
+  //   ]
+  // );
+
+  await userProxy.execute(fiatActionAddress, functionData);
 }
+
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
