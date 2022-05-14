@@ -162,6 +162,10 @@ async function main() {
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
 
   console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
+
+  difference = tryDebt - fiatBalance
+
+  console.log('lost in txn fees (?): ' + difference/10**decimals + ' (' + difference/tryDebt*100 + '%)')
 }
 
 
