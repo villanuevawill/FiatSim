@@ -3,6 +3,7 @@
 //
 // When running the script with `npx hardhat run <script>` you'll find the Hardhat
 // Runtime Environment's members available in the global scope.
+const { BigNumber } = require("ethers");
 const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
@@ -14,6 +15,7 @@ const balancerVaultAddress = "0xba12222222228d8ba445958a75a0704d566bf2c8";
 const fiatActionAddress = "0x0021DCEeb93130059C2BbBa7DacF14fe34aFF23c";
 const fiatDaiVaultAddress = "0xb6922A39C85a4E838e1499A8B7465BDca2E49491";
 const fiatProxyFactoryAddress = "0x7Ee06e44C4764A49346290CD9a2267DB6daD7214";
+const fiatAddress = "0x586Aa273F262909EEF8fA02d90Ab65F5015e0516";
 
 const elementDaiTrancheAddresses = {
   "address": "0xCCE00da653eB50133455D4075fE8BcA36750492c",
@@ -91,7 +93,7 @@ async function main() {
   console.log("original fair price: ", fairPrice);
 
   // Max debt that can be acquired
-  const maxDebt = dsMath.wmul(ptBalance, fairPrice);
+  const maxDebt = dsMath.wmul(fairPrice, ptBalance);
   console.log("Fair Price: ", hre.ethers.utils.formatUnits(fairPrice, decimals));
   console.log("Max Debt: ", hre.ethers.utils.formatUnits(maxDebt, decimals));
 
@@ -117,7 +119,7 @@ async function main() {
       signer.address,
       signer.address,
       ptBalance,
-      hre.ethers.utils.parseUnits("92000", 18)
+      maxDebt.sub(hre.ethers.utils.parseUnits("40", 18))
     ]
   );
 
@@ -144,6 +146,11 @@ async function main() {
   // );
 
   await userProxy.execute(fiatActionAddress, functionData);
+
+  const fiatERC20 = await hre.ethers.getContractAt("ERC20", fiatAddress, signer);
+  const fiatBalance = await fiatERC20.balanceOf(signer.address);
+
+  console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
 }
 
 
