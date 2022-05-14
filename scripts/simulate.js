@@ -16,6 +16,7 @@ const fiatActionAddress = "0x0021DCEeb93130059C2BbBa7DacF14fe34aFF23c";
 const fiatDaiVaultAddress = "0xb6922A39C85a4E838e1499A8B7465BDca2E49491";
 const fiatProxyFactoryAddress = "0x7Ee06e44C4764A49346290CD9a2267DB6daD7214";
 const fiatAddress = "0x586Aa273F262909EEF8fA02d90Ab65F5015e0516";
+const fiatCurvePoolAddress = "0xDB8Cc7eCeD700A4bfFdE98013760Ff31FF9408D8";
 
 const elementDaiTrancheAddresses = {
   "address": "0xCCE00da653eB50133455D4075fE8BcA36750492c",
@@ -151,6 +152,11 @@ async function main() {
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
 
   console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
+
+  const curvePool = await hre.ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
+  const virtualPrice = await curvePool.get_virtual_price();
+
+  console.log("virtual price: ", virtualPrice);
 }
 
 
