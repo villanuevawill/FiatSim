@@ -17,7 +17,7 @@ interface ICurveFi {
     int128 j,
     uint256 dx
   ) external view returns (uint256);
-  function coins(int128 arg0) external view returns (address);
+  function coins(uint256 arg0) external view returns (address);
   function underlying_coins(int128 arg0) external view returns (address);
 
   function add_liquidity(
