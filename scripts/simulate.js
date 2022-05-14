@@ -109,20 +109,6 @@ async function main() {
   await daiERC20.approve(proxyAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   await ptERC20.approve(proxyAddress, proxyAddress);
 
-  const functionData = fiatActions.interface.encodeFunctionData(
-    'modifyCollateralAndDebt',
-    [
-      fiatDaiVaultAddress,
-      daiPTAddress,
-      0,
-      proxyAddress,
-      signer.address,
-      signer.address,
-      ptBalance,
-      maxDebt.sub(hre.ethers.utils.parseUnits("40", 18))
-    ]
-  );
-
   // For now comment out if we want to be more efficient and use this later
   // const functionData = fiatActions.interface.encodeFunctionData(
   //   'buyCollateralAndModifyDebt',
@@ -145,7 +131,32 @@ async function main() {
   //   ]
   // );
 
-  await userProxy.execute(fiatActionAddress, functionData);
+  debtDecrement=0
+  success = false
+  while (!success) {
+    debtDecrement++
+    tryDebt = maxDebt.sub(hre.ethers.utils.parseUnits(debtDecrement.toString(), 18))
+
+    const functionData = fiatActions.interface.encodeFunctionData(
+      'modifyCollateralAndDebt',
+      [
+        fiatDaiVaultAddress,
+        daiPTAddress,
+        0,
+        proxyAddress,
+        signer.address,
+        signer.address,
+        ptBalance,
+        tryDebt
+      ]
+    );
+    try {
+      await userProxy.execute(fiatActionAddress, functionData)
+      console.log('success taking out FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString())
+      success = true
+    }
+    catch(e) { console.log('failed taking out FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString()) }
+  } // end while
 
   const fiatERC20 = await hre.ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);

@@ -40,12 +40,12 @@ module.exports = {
       accounts: [
         {
           balance: "10000000000000000000000",
-          privateKey: "PRIVATE_KEY",
+          privateKey: process.env.PRIVATE_KEY,
         },
       ],
       forking: {
-        url: 'ALCHEMY_KEY',
-        blockNumber: 14738270
+        url: process.env.ALCHEMY_URL,
+        blockNumber: 14776292
       },
     },
   },

@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+    {
+        "name": "Launch via NPM",
+        "request": "launch",
+        "runtimeArgs": [
+            "hardhat",
+            "run",
+            "./scripts/simulate.js"
+        ],
+        "runtimeExecutable": "npx",
+        "skipFiles": [
+            "<node_internals>/**"
+        ],
+        "type": "node"
+    },
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "hardhat test",
+        "skipFiles": ["<node_internals>/**"],
+        "runtimeExecutable": "${workspaceFolder}/packages/hardhat/node_modules/.bin/hardhat",
+        "args": ["test", "--network", "localhost"],
+        "cwd": "${workspaceFolder}"
+      },
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "hardhat simulate",
+        "skipFiles": ["<node_internals>/**"],
+        "runtimeExecutable": "npx",
+        "runtimeArgs": ["--nolazy", "-r", "ts-node/register","-r","dotenv/config"],
+        "args": ["hardhat", "run", "./scripts/simulate.js", "--transpile-only"],
+        "cwd": "${workspaceFolder}"
+      }
+    ]
+  }
