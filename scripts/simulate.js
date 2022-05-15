@@ -21,17 +21,44 @@ const fiatCurvePoolAddress = "0xDB8Cc7eCeD700A4bfFdE98013760Ff31FF9408D8";
 
 const MAX_APPROVE = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 const DECIMALS = 18;
+const DAI_PRICE_ETH = 0.0004965;
+const ETH_PRICE_DAI = ethers.utils.parseUnits((1/DAI_PRICE_ETH).toString(), DECIMALS);
+const CURRENT_TIME = Math.round((new Date()).getTime() / 1000);
+const TERM_MATURITY = 1663361092;
+const YEAR_SECONDS = 31536000;
+const MATURITY_YEAR_FACTOR = (TERM_MATURITY - CURRENT_TIME) / YEAR_SECONDS;
+const FIAT_INTEREST_RATE = .01;
+const FIAT_PRICE_DAI = 1;
 
 async function main() {
   const signer = (await ethers.getSigners())[0];
 
-  await seedSigner();
-  await purchasePTs("100000.0");
-  await collateralizeForFiat();
-  await curveSwapFiatForDai();
+  const startingDaiBalanceFixed = 100000;
+  const startingDaiBalance = ethers.utils.parseUnits(Number(startingDaiBalanceFixed).toString(), DECIMALS);
+
+  await seedSigner(startingDaiBalance);
+
+  const startingEth = await signer.getBalance();
+
+  const ptBalance = await purchasePTs(startingDaiBalance);
+  const fiatDebt = await collateralizeForFiat();
+  const daiBalance = await curveSwapFiatForDai();
+
+  const endingEth = await signer.getBalance();
+  const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
+  const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
+  const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai);
+  const daiEarned = finalDaiBalance.sub(startingDaiBalance);
+  const earnedFixed = Number(ethers.utils.formatUnits(daiEarned, DECIMALS));
+  const startingFixed = Number(ethers.utils.formatUnits(startingDaiBalance, DECIMALS));
+  const netAPY = earnedFixed/startingFixed/MATURITY_YEAR_FACTOR;
+
+  console.log("Final Dai Balance: ", ethers.utils.formatUnits(finalDaiBalance, DECIMALS));
+  console.log("Dai Gained: ", ethers.utils.formatUnits(daiEarned, DECIMALS));
+  console.log("Net APY: ", netAPY);
 }
 
-async function seedSigner() {
+async function seedSigner(daiAmount) {
   const signer = (await ethers.getSigners())[0];
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
@@ -48,8 +75,7 @@ async function seedSigner() {
 
   const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
 
-  const amountAbsolute = ethers.utils.parseUnits("100000", DECIMALS);
-  const transaction = await daiERC20Whale.transfer(signer.address, amountAbsolute);
+  const transaction = await daiERC20Whale.transfer(signer.address, daiAmount);
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
   console.log("confirmed transferred balance: ", balanceOfSigner);
@@ -57,6 +83,7 @@ async function seedSigner() {
 
 async function purchasePTs(amount) {
   const signer = (await ethers.getSigners())[0];
+
   const ccPool =  await new ethers.Contract(balancerVaultAddress, ivault, signer);
 
   const singleSwap = {
@@ -64,7 +91,7 @@ async function purchasePTs(amount) {
     kind: 0, // GIVEN_IN
     assetIn: daiAddress,
     assetOut: daiPTAddress,
-    amount: ethers.utils.parseUnits(amount, DECIMALS),
+    amount: amount,
     userData: "0x00",
   };
 
@@ -75,16 +102,20 @@ async function purchasePTs(amount) {
     toInternalBalance: false,
   };
 
-  limit = ethers.utils.parseUnits(amount, DECIMALS); // For now don't worry about limit since it is a sim
-  deadline = Math.round(Date.now() / 1000) + 100; // 100 seconds expiration
+  const limit = amount; // For now don't worry about limit since it is a sim
+  const deadline = Math.round(Date.now() / 1000) + 100; // 100 seconds expiration
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
+
   await ccPool.swap(singleSwap, funds, limit, deadline);
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
+
   console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, DECIMALS));
+
+  return ptBalance;
 }
 
 async function collateralizeForFiat() {
@@ -135,6 +166,8 @@ async function collateralizeForFiat() {
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
 
   console.log("Current Fiat Balance: ", ethers.utils.formatUnits(fiatBalance, DECIMALS));
+
+  return fiatBalance;
 }
 
 async function curveSwapFiatForDai() {
@@ -148,7 +181,10 @@ async function curveSwapFiatForDai() {
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
+  
   console.log("Swapped and received Dai: ", ethers.utils.formatUnits(newDaiBalance, DECIMALS));
+
+  return newDaiBalance;
 }
 
 
