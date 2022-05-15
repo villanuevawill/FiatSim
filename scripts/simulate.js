@@ -20,10 +20,19 @@ const fiatAddress = "0x586Aa273F262909EEF8fA02d90Ab65F5015e0516";
 const fiatCurvePoolAddress = "0xDB8Cc7eCeD700A4bfFdE98013760Ff31FF9408D8";
 
 const MAX_APPROVE = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+const DECIMALS = 18;
 
 async function main() {
   const signer = (await ethers.getSigners())[0];
 
+  await seedSigner();
+  await purchasePTs("100000.0");
+  await collateralizeForFiat();
+  await curveSwapFiatForDai();
+}
+
+async function seedSigner() {
+  const signer = (await ethers.getSigners())[0];
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
     params: [daiWhaleAddress],
@@ -39,13 +48,15 @@ async function main() {
 
   const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
 
-  const decimals = await daiERC20Whale.decimals()
-  const amountAbsolute = ethers.utils.parseUnits("100000", decimals);
+  const amountAbsolute = ethers.utils.parseUnits("100000", DECIMALS);
   const transaction = await daiERC20Whale.transfer(signer.address, amountAbsolute);
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
   console.log("confirmed transferred balance: ", balanceOfSigner);
+}
 
+async function purchasePTs(amount) {
+  const signer = (await ethers.getSigners())[0];
   const ccPool =  await new ethers.Contract(balancerVaultAddress, ivault, signer);
 
   const singleSwap = {
@@ -53,7 +64,7 @@ async function main() {
     kind: 0, // GIVEN_IN
     assetIn: daiAddress,
     assetOut: daiPTAddress,
-    amount: ethers.utils.parseUnits("100000.0"),
+    amount: ethers.utils.parseUnits(amount, DECIMALS),
     userData: "0x00",
   };
 
@@ -64,16 +75,20 @@ async function main() {
     toInternalBalance: false,
   };
 
-  limit = ethers.utils.parseUnits("100000.0"); // For now don't worry about limit since it is a sim
+  limit = ethers.utils.parseUnits(amount, DECIMALS); // For now don't worry about limit since it is a sim
   deadline = Math.round(Date.now() / 1000) + 100; // 100 seconds expiration
 
-  const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
   await ccPool.swap(singleSwap, funds, limit, deadline);
 
+  const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
-  console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, decimals));
+  console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, DECIMALS));
+}
+
+async function collateralizeForFiat() {
+  const signer = (await ethers.getSigners())[0];
 
   const vault = await ethers.getContractAt("IVaultEPT", fiatDaiVaultAddress, signer);
 
@@ -82,10 +97,12 @@ async function main() {
   const fairPrice = await vault.fairPrice(0, true, false);
   console.log("original fair price: ", fairPrice);
 
+  const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
+  const ptBalance = await ptERC20.balanceOf(signer.address);
   // Max debt that can be acquired
   const maxDebt = dsMath.wmul(fairPrice, ptBalance);
-  console.log("Fair Price: ", ethers.utils.formatUnits(fairPrice, decimals));
-  console.log("Max Debt: ", ethers.utils.formatUnits(maxDebt, decimals));
+  console.log("Fair Price: ", ethers.utils.formatUnits(fairPrice, DECIMALS));
+  console.log("Max Debt: ", ethers.utils.formatUnits(maxDebt, DECIMALS));
 
   const fiatActions = await ethers
   .getContractAt("VaultEPTActions", fiatActionAddress, signer);
@@ -117,14 +134,21 @@ async function main() {
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
 
-  console.log("Current Fiat Balance: ", ethers.utils.formatUnits(fiatBalance, decimals));
+  console.log("Current Fiat Balance: ", ethers.utils.formatUnits(fiatBalance, DECIMALS));
+}
 
+async function curveSwapFiatForDai() {
+  const signer = (await ethers.getSigners())[0];
+
+  const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
+  const fiatBalance = await fiatERC20.balanceOf(signer.address);
   await fiatERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
   const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
   await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
 
+  const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
-  console.log("Swapped and received Dai: ", newDaiBalance);
+  console.log("Swapped and received Dai: ", ethers.utils.formatUnits(newDaiBalance, DECIMALS));
 }
 
 
