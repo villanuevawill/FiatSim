@@ -7,6 +7,7 @@ const { BigNumber } = require("ethers");
 const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
+var latestBlockNumber = 0
 
 let Vault = class {
   constructor(totalNormalDebt, rate, debtCeiling, debtFloor) {
@@ -44,14 +45,23 @@ const elementDaiTrancheAddresses = {
   "convergentCurvePoolFactory": "0xE88628700eaE9213169D715148ac5A5F47B5dCd9"
 };
 
+async function printBlockNumber(text) {
+  if (typeof(text) != "undefined") {text = ' ' + text} else {text = ''}
+  const newBlockNumber = await hre.ethers.provider.getBlockNumber();
+  if (newBlockNumber > latestBlockNumber) {
+    console.log("Block Number: " + newBlockNumber + text);
+    latestBlockNumber = newBlockNumber;
+  }
+}
+
 async function main() {
   const signer = (await hre.ethers.getSigners())[0];
+  printBlockNumber('init')
 
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
     params: [daiWhaleAddress],
   });
-
   const daiWhaleSigner = await hre.ethers.getSigner(daiWhaleAddress)
 
   // Send some ether to the holder so that they can transfer tokens
@@ -61,14 +71,12 @@ async function main() {
   ]);
 
   const daiERC20Whale = await hre.ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
-
   const decimals = await daiERC20Whale.decimals()
   const amountAbsolute = hre.ethers.utils.parseUnits("100000", decimals);
   const transaction = await daiERC20Whale.transfer(signer.address, amountAbsolute);
+  printBlockNumber('transfer ether from whale')
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
-
-  console.log("confirmed transferred balance: ", balanceOfSigner);
-
+  // console.log("confirmed transferred balance: ", balanceOfSigner);
   const ccPool =  await new hre.ethers.Contract(balancerVaultAddress, ivault, signer);
 
   const singleSwap = {
@@ -92,30 +100,29 @@ async function main() {
 
   const ptERC20 = await hre.ethers.getContractAt("ERC20", daiPTAddress, signer);
   const daiERC20 = await hre.ethers.getContractAt("ERC20", daiAddress, signer);
+  printBlockNumber('approve dai and pt for signer')
   await daiERC20.approve(balancerVaultAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   await ccPool.swap(singleSwap, funds, limit, deadline);
+  printBlockNumber('balancer swap')
 
   const ptBalance = await ptERC20.balanceOf(signer.address);
-  console.log("PTs Acquired: ", hre.ethers.utils.formatUnits(ptBalance, decimals));
-
   const vault = await hre.ethers.getContractAt("IVaultEPT", fiatDaiVaultAddress, signer);
-
-  const fiatActions = await hre.ethers
-  .getContractAt("VaultEPTActions", fiatActionAddress, signer);
+  const fiatActions = await hre.ethers.getContractAt("VaultEPTActions", fiatActionAddress, signer);
 
   const proxyFactory = await hre.ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
   const receiptData = await receipt.wait();
   const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
+  printBlockNumber('deploy proxy')
 
   const userProxy = await hre.ethers.getContractAt("IPRBProxy", proxyAddress);
   await daiERC20.approve(proxyAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   await ptERC20.approve(proxyAddress, proxyAddress);
+  printBlockNumber('approve dai and pt for proxy')
 
   // This method of calculating takes into account the accumulator interest
   // this means you can never be liquidated
   var fairPrice = await vault.fairPrice(0, true, false);
-  // console.log("original fair price: ", fairPrice);
 
   // Max debt that can be acquired
   const maxDebt = dsMath.wmul(fairPrice, ptBalance);
@@ -129,6 +136,7 @@ async function main() {
   var fiatDaiVault = new Vault(...await codex.vaults(fiatDaiVaultAddress))
   console.log(fiatDaiVault)
   console.log('Virtual rate from codex: ' + fiatDaiVault.rate.toString())
+  printBlockNumber('get virtual rates')
 
   debtDecrement=0
   tryDebt = dsMath.wdiv(maxDebt, dsMath.wmul(fiatDaiVault.rateWAD,hre.ethers.utils.parseUnits("1.00001", 18))) // adjust for change in rate over time until execution
@@ -151,48 +159,48 @@ async function main() {
     );
     try {
       await userProxy.execute(fiatActionAddress, functionData)
-      console.log('success taking out normalized FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString())
+      console.log('success minting debt with inputs:'
+        +'\n  actual FIAT debt = '+(tryDebt/10**decimals*fiatDaiVault.rate).toString()
+        +'\n  normalized FIAT debt = '+(tryDebt/10**decimals).toString()
+        +'\n  debtDecrement=' + debtDecrement.toString()
+        )
       success = true
-      }
+    }
     catch(e) {
       console.log('failed taking out normalized FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString())
       debtDecrement++
-      }
-    } // end while
+    }
+  } // end while
+  printBlockNumber('take out debt')
+
+  oldRate = fiatDaiVault.rate
+  var fiatDaiVault = new Vault(...await codex.vaults(fiatDaiVaultAddress))
+  newRate = fiatDaiVault.rate
+  printBlockNumber('update normalization rate')
 
   const fiatERC20 = await hre.ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
   const fiatNormalBalance = dsMath.wdiv(fiatBalance,fiatDaiVault.rateWAD);
+  
+  console.log("Current balance:"
+    +'\n  Actual Fiat: '+hre.ethers.utils.formatUnits(fiatBalance, decimals)
+    +'\n  Normalized Fiat: '+hre.ethers.utils.formatUnits(fiatNormalBalance, decimals));
+}
 
-  // console.log(tryDebt.toString())
-  // console.log(fiatNormalBalance.toString())
-
+async function debugNormalizationRate() {
   console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
   console.log("Current Fiat Normalized Balance: ", hre.ethers.utils.formatUnits(fiatNormalBalance, decimals));
 
   difference = fiatNormalBalance - tryDebt
   differenceActual = fiatBalance - dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)
-  // console.log(difference)
-  // console.log(differenceActual)
-
   console.log('difference in Normal Debt: input minus output: ' + difference/10**decimals + ' (' + difference/tryDebt*100 + '%)')
   console.log('difference in Actual Debt: input minus output: ' + differenceActual/10**decimals + ' (' + differenceActual/dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)*100 + '%)')
 
-  var newFairPrice = await vault.fairPrice(0, true, false);
-  // console.log("new fair price: ", newFairPrice);
-  console.log("new fair price: ", hre.ethers.utils.formatUnits(newFairPrice,decimals));
-  console.log('increase in price: ' + (newFairPrice/fairPrice-1)*100 +'%')
-
-  oldRate = fiatDaiVault.rate
-  var fiatDaiVault = new Vault(...await codex.vaults(fiatDaiVaultAddress))
-  newRate = fiatDaiVault.rate
   console.log('new normalization rate: ' + fiatDaiVault.rate.toString())
   console.log('increase in rate: ' + (newRate/oldRate-1)*100 +'%')
-
   differenceActual = fiatBalance - dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)
   console.log('difference in Actual Debt using new normalization rate: ' + differenceActual/10**decimals + ' (' + differenceActual/dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)*100 + '%)')
 }
-
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
