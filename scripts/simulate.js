@@ -8,6 +8,19 @@ const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
 
+let Vault = class {
+  constructor(totalNormalDebt, rate, debtCeiling, debtFloor) {
+    this.totalNormalDebt = totalNormalDebt/10**18; // Total Normalised Debt in Vault
+    this.rate = rate/10**18; // Vault's Accumulation Rate
+    this.debtCeiling = debtCeiling/10**18; // Vault's Debt Ceiling
+    this.debtFloor = debtFloor/10**18; // Debt Floor for Positions corresponding to this Vault
+    this.totalNormalDebtWAD = totalNormalDebt; // Total Normalised Debt in Vault [wad]
+    this.rateWAD = rate; // Vault's Accumulation Rate [wad]
+    this.debtCeilingWAD = debtCeiling; // Vault's Debt Ceiling [wad]
+    this.debtFloorWAD = debtFloor; // Debt Floor for Positions corresponding to this Vault [wad]
+  }
+}
+
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
 const daiPTAddress = "0xCCE00da653eB50133455D4075fE8BcA36750492c";
@@ -87,16 +100,6 @@ async function main() {
 
   const vault = await hre.ethers.getContractAt("IVaultEPT", fiatDaiVaultAddress, signer);
 
-  // This method of calculating takes into account the accumulator interest
-  // this means you can never be liquidated
-  const fairPrice = await vault.fairPrice(0, true, false);
-  console.log("original fair price: ", fairPrice);
-
-  // Max debt that can be acquired
-  const maxDebt = dsMath.wmul(fairPrice, ptBalance);
-  console.log("Fair Price: ", hre.ethers.utils.formatUnits(fairPrice, decimals));
-  console.log("Max Debt: ", hre.ethers.utils.formatUnits(maxDebt, decimals));
-
   const fiatActions = await hre.ethers
   .getContractAt("VaultEPTActions", fiatActionAddress, signer);
 
@@ -109,33 +112,29 @@ async function main() {
   await daiERC20.approve(proxyAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   await ptERC20.approve(proxyAddress, proxyAddress);
 
-  // For now comment out if we want to be more efficient and use this later
-  // const functionData = fiatActions.interface.encodeFunctionData(
-  //   'buyCollateralAndModifyDebt',
-  //   [
-  //     fiatDaiVaultAddress,
-  //     proxyAddress,
-  //     signer.address,
-  //     signer.address,
-  //     hre.ethers.utils.parseUnits("1000", 18),
-  //     hre.ethers.utils.parseUnits("500", 18),
-  //     [
-  //       balancerVaultAddress,
-  //       elementDaiTrancheAddresses.ptPool.poolId,
-  //       daiAddress,
-  //       daiPTAddress,
-  //       hre.ethers.utils.parseUnits("1000", 18),
-  //       deadline,
-  //       hre.ethers.utils.parseUnits("1000", 18),
-  //     ]
-  //   ]
-  // );
+  // This method of calculating takes into account the accumulator interest
+  // this means you can never be liquidated
+  var fairPrice = await vault.fairPrice(0, true, false);
+  // console.log("original fair price: ", fairPrice);
+
+  // Max debt that can be acquired
+  const maxDebt = dsMath.wmul(fairPrice, ptBalance);
+  console.log("Fair Price: ", hre.ethers.utils.formatUnits(fairPrice, decimals));
+  console.log("Max Debt: ", hre.ethers.utils.formatUnits(maxDebt, decimals));
+
+  const publican = await hre.ethers.getContractAt("IPublican", await fiatActions.publican());
+  const virtualRate = await publican.virtualRate(fiatDaiVaultAddress)
+  console.log('Virtual rate from publican: ' + virtualRate.value.toString())
+  const codex = await hre.ethers.getContractAt("ICodex", await fiatActions.codex());
+  var fiatDaiVault = new Vault(...await codex.vaults(fiatDaiVaultAddress))
+  console.log(fiatDaiVault)
+  console.log('Virtual rate from codex: ' + fiatDaiVault.rate.toString())
 
   debtDecrement=0
+  tryDebt = dsMath.wdiv(maxDebt, dsMath.wmul(fiatDaiVault.rateWAD,hre.ethers.utils.parseUnits("1.00001", 18))) // adjust for change in rate over time until execution
   success = false
   while (!success) {
-    debtDecrement++
-    tryDebt = maxDebt.sub(hre.ethers.utils.parseUnits(debtDecrement.toString(), 18))
+    tryDebt = tryDebt.sub(hre.ethers.utils.parseUnits(debtDecrement.toString(), 18))
 
     const functionData = fiatActions.interface.encodeFunctionData(
       'modifyCollateralAndDebt',
@@ -152,20 +151,46 @@ async function main() {
     );
     try {
       await userProxy.execute(fiatActionAddress, functionData)
-      console.log('success taking out FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString())
+      console.log('success taking out normalized FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString())
       success = true
-    }
-    catch(e) { console.log('failed taking out FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString()) }
-  } // end while
+      }
+    catch(e) {
+      console.log('failed taking out normalized FIAT debt = '+(tryDebt/10**decimals).toString()+', decrement='+debtDecrement.toString())
+      debtDecrement++
+      }
+    } // end while
 
   const fiatERC20 = await hre.ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
+  const fiatNormalBalance = dsMath.wdiv(fiatBalance,fiatDaiVault.rateWAD);
+
+  // console.log(tryDebt.toString())
+  // console.log(fiatNormalBalance.toString())
 
   console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
+  console.log("Current Fiat Normalized Balance: ", hre.ethers.utils.formatUnits(fiatNormalBalance, decimals));
 
-  difference = tryDebt - fiatBalance
+  difference = fiatNormalBalance - tryDebt
+  differenceActual = fiatBalance - dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)
+  // console.log(difference)
+  // console.log(differenceActual)
 
-  console.log('lost in txn fees (?): ' + difference/10**decimals + ' (' + difference/tryDebt*100 + '%)')
+  console.log('difference in Normal Debt: input minus output: ' + difference/10**decimals + ' (' + difference/tryDebt*100 + '%)')
+  console.log('difference in Actual Debt: input minus output: ' + differenceActual/10**decimals + ' (' + differenceActual/dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)*100 + '%)')
+
+  var newFairPrice = await vault.fairPrice(0, true, false);
+  // console.log("new fair price: ", newFairPrice);
+  console.log("new fair price: ", hre.ethers.utils.formatUnits(newFairPrice,decimals));
+  console.log('increase in price: ' + (newFairPrice/fairPrice-1)*100 +'%')
+
+  oldRate = fiatDaiVault.rate
+  var fiatDaiVault = new Vault(...await codex.vaults(fiatDaiVaultAddress))
+  newRate = fiatDaiVault.rate
+  console.log('new normalization rate: ' + fiatDaiVault.rate.toString())
+  console.log('increase in rate: ' + (newRate/oldRate-1)*100 +'%')
+
+  differenceActual = fiatBalance - dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)
+  console.log('difference in Actual Debt using new normalization rate: ' + differenceActual/10**decimals + ' (' + differenceActual/dsMath.wmul(tryDebt,fiatDaiVault.rateWAD)*100 + '%)')
 }
 
 
