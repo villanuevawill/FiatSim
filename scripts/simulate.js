@@ -33,23 +33,40 @@ const FIAT_PRICE_DAI = 1;
 async function main() {
   const signer = (await ethers.getSigners())[0];
 
-  const startingDaiBalanceFixed = 100000;
+  const startingDaiBalanceFixed = 10000;
+
   const startingDaiBalance = ethers.utils.parseUnits(Number(startingDaiBalanceFixed).toString(), DECIMALS);
+  let daiBalance = startingDaiBalance;
 
   await seedSigner(startingDaiBalance);
+  let totalDaiEarned = ethers.utils.parseUnits("0");
+  let totalDaiBalance = ethers.utils.parseUnits("0");
+  let daiEarned = BigNumber.from(0);
+  let stopped = false;
 
-  const {
-    gasDai,
-    interestDai,
-    finalDaiBalance,
-    daiEarned
-  } = await leverageCycle(startingDaiBalance)
+  await (async () => {
+    while (daiEarned.gte(BigNumber.from(0))) {
+      const receipt = await leverageCycle(daiBalance);
 
-  const earnedFixed = Number(ethers.utils.formatUnits(daiEarned, DECIMALS));
-  const startingFixed = Number(ethers.utils.formatUnits(startingDaiBalance, DECIMALS));
-  const netAPY = earnedFixed/startingFixed/MATURITY_YEAR_FACTOR;
+      const {
+        gasDai,
+        interestDai,
+        finalDaiBalance,
+      } = receipt;
 
-  console.log("Net APY: ", netAPY);
+      daiEarned = receipt.daiEarned;
+      daiBalance = receipt.daiBalance;
+
+      if (daiEarned.gte(BigNumber.from(0))) {
+        totalDaiEarned = totalDaiEarned.add(daiEarned);
+      }
+    }
+  })();
+
+  const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
+
+  const netAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
+  console.log("Final Net APY: ", netAPY);
 }
 
 async function leverageCycle(amount) {
@@ -74,6 +91,7 @@ async function leverageCycle(amount) {
     gasDai,
     interestDai,
     finalDaiBalance,
+    daiBalance,
     daiEarned,
   }
 }
@@ -127,6 +145,7 @@ async function purchasePTs(amount) {
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
+  const bal = await daiERC20.balanceOf(signer.address);
 
   await ccPool.swap(singleSwap, funds, limit, deadline);
 
