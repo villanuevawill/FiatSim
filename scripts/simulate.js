@@ -153,10 +153,8 @@ async function main() {
 
   console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
 
-  const curvePool = await hre.ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
-  const virtualPrice = await curvePool.get_virtual_price();
-
-  console.log("virtual price: ", virtualPrice);
+  await fiatERC20.approve(fiatCurvePoolAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  const exchange = await curvePool.exchange_underlying(0, 1, hre.ethers.utils.parseUnits("4000", 18), hre.ethers.utils.parseUnits("2000", 18));
 }
 
 
