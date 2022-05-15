@@ -7,6 +7,7 @@ const { BigNumber } = require("ethers");
 const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
+const fs = require('fs');
 
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
@@ -30,9 +31,9 @@ const MATURITY_YEAR_FACTOR = (TERM_MATURITY - CURRENT_TIME) / YEAR_SECONDS;
 const FIAT_INTEREST_RATE = .01;
 const FIAT_PRICE_DAI = 1;
 
-const DAI_BALANCE_START = 500;
-const DAI_BALANCE_INCREMENT = 500;
-const DAI_BALANCE_END = 200000;
+const DAI_BALANCE_START = 10000;
+const DAI_BALANCE_INCREMENT = 2000;
+const DAI_BALANCE_END = 150000;
 
 async function main() {
   let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
@@ -45,7 +46,7 @@ async function main() {
 
       for (const [key, value] of Object.entries(output)) {
         if (value instanceof BigNumber) {
-          serialized[key] = ethers.utils.formatUnits(value, DECIMALS);
+          serialized[key] = Number(ethers.utils.formatUnits(value, DECIMALS));
         } else {
           serialized[key] = value;
         }
@@ -68,6 +69,14 @@ async function main() {
   })()
 
   console.log(outputData);
+  const data = JSON.stringify(outputData);
+
+  fs.writeFile('fiatsim.json', data, (err) => {
+    if (err) {
+        throw err;
+    }
+    console.log("JSON data is saved.");
+  });
 }
 
 async function fiatLeverage(amount) {
