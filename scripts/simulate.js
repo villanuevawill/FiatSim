@@ -11,6 +11,7 @@ const dsMath = require("../helpers/dsmath-ethers");
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
 const daiPTAddress = "0xCCE00da653eB50133455D4075fE8BcA36750492c";
+const ptPoolID = "0x8ffd1dc7c3ef65f833cf84dbcd15b6ad7f9c54ec000200000000000000000199";
 const balancerVaultAddress = "0xba12222222228d8ba445958a75a0704d566bf2c8";
 const fiatActionAddress = "0x0021DCEeb93130059C2BbBa7DacF14fe34aFF23c";
 const fiatDaiVaultAddress = "0xb6922A39C85a4E838e1499A8B7465BDca2E49491";
@@ -18,53 +19,41 @@ const fiatProxyFactoryAddress = "0x7Ee06e44C4764A49346290CD9a2267DB6daD7214";
 const fiatAddress = "0x586Aa273F262909EEF8fA02d90Ab65F5015e0516";
 const fiatCurvePoolAddress = "0xDB8Cc7eCeD700A4bfFdE98013760Ff31FF9408D8";
 
-const elementDaiTrancheAddresses = {
-  "address": "0xCCE00da653eB50133455D4075fE8BcA36750492c",
-  "trancheFactory": "0x62F161BF3692E4015BefB05A03a94A40f520d1c0",
-  "expiration": 1663361092,
-  "ptPool": {
-    "address": "0x8fFD1dc7C3eF65f833CF84dbCd15b6Ad7f9C54EC",
-    "poolId": "0x8ffd1dc7c3ef65f833cf84dbcd15b6ad7f9c54ec000200000000000000000199",
-    "fee": "0.1",
-    "timeStretch": 55.47
-  },
-  "weightedPoolFactory": "0x8E9aa87E45e92bad84D5F8DD1bff34Fb92637dE9",
-  "convergentCurvePoolFactory": "0xE88628700eaE9213169D715148ac5A5F47B5dCd9"
-};
+const MAX_APPROVE = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 async function main() {
-  const signer = (await hre.ethers.getSigners())[0];
+  const signer = (await ethers.getSigners())[0];
 
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
     params: [daiWhaleAddress],
   });
 
-  const daiWhaleSigner = await hre.ethers.getSigner(daiWhaleAddress)
+  const daiWhaleSigner = await ethers.getSigner(daiWhaleAddress)
 
   // Send some ether to the holder so that they can transfer tokens
   await hre.network.provider.send("hardhat_setBalance", [
     daiWhaleAddress,
-    hre.ethers.utils.parseEther("10.0").toHexString()
+    ethers.utils.parseEther("10.0").toHexString()
   ]);
 
-  const daiERC20Whale = await hre.ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
+  const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
 
   const decimals = await daiERC20Whale.decimals()
-  const amountAbsolute = hre.ethers.utils.parseUnits("100000", decimals);
+  const amountAbsolute = ethers.utils.parseUnits("100000", decimals);
   const transaction = await daiERC20Whale.transfer(signer.address, amountAbsolute);
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
   console.log("confirmed transferred balance: ", balanceOfSigner);
 
-  const ccPool =  await new hre.ethers.Contract(balancerVaultAddress, ivault, signer);
+  const ccPool =  await new ethers.Contract(balancerVaultAddress, ivault, signer);
 
   const singleSwap = {
-    poolId: elementDaiTrancheAddresses.ptPool.poolId,
+    poolId: ptPoolID,
     kind: 0, // GIVEN_IN
     assetIn: daiAddress,
     assetOut: daiPTAddress,
-    amount: hre.ethers.utils.parseUnits("100000.0"),
+    amount: ethers.utils.parseUnits("100000.0"),
     userData: "0x00",
   };
 
@@ -75,18 +64,18 @@ async function main() {
     toInternalBalance: false,
   };
 
-  limit = hre.ethers.utils.parseUnits("100000.0"); // For now don't worry about limit since it is a sim
+  limit = ethers.utils.parseUnits("100000.0"); // For now don't worry about limit since it is a sim
   deadline = Math.round(Date.now() / 1000) + 100; // 100 seconds expiration
 
-  const ptERC20 = await hre.ethers.getContractAt("ERC20", daiPTAddress, signer);
-  const daiERC20 = await hre.ethers.getContractAt("ERC20", daiAddress, signer);
-  await daiERC20.approve(balancerVaultAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
+  const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
+  await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
   await ccPool.swap(singleSwap, funds, limit, deadline);
 
   const ptBalance = await ptERC20.balanceOf(signer.address);
-  console.log("PTs Acquired: ", hre.ethers.utils.formatUnits(ptBalance, decimals));
+  console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, decimals));
 
-  const vault = await hre.ethers.getContractAt("IVaultEPT", fiatDaiVaultAddress, signer);
+  const vault = await ethers.getContractAt("IVaultEPT", fiatDaiVaultAddress, signer);
 
   // This method of calculating takes into account the accumulator interest
   // this means you can never be liquidated
@@ -95,20 +84,19 @@ async function main() {
 
   // Max debt that can be acquired
   const maxDebt = dsMath.wmul(fairPrice, ptBalance);
-  console.log("Fair Price: ", hre.ethers.utils.formatUnits(fairPrice, decimals));
-  console.log("Max Debt: ", hre.ethers.utils.formatUnits(maxDebt, decimals));
+  console.log("Fair Price: ", ethers.utils.formatUnits(fairPrice, decimals));
+  console.log("Max Debt: ", ethers.utils.formatUnits(maxDebt, decimals));
 
-  const fiatActions = await hre.ethers
+  const fiatActions = await ethers
   .getContractAt("VaultEPTActions", fiatActionAddress, signer);
 
-  const proxyFactory = await hre.ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
+  const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
   const receiptData = await receipt.wait();
   const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
 
-  const userProxy = await hre.ethers.getContractAt("IPRBProxy", proxyAddress);
-  await daiERC20.approve(proxyAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-  await ptERC20.approve(proxyAddress, proxyAddress);
+  const userProxy = await ethers.getContractAt("IPRBProxy", proxyAddress);
+  await ptERC20.approve(proxyAddress, MAX_APPROVE);
 
   const functionData = fiatActions.interface.encodeFunctionData(
     'modifyCollateralAndDebt',
@@ -120,41 +108,19 @@ async function main() {
       signer.address,
       signer.address,
       ptBalance,
-      maxDebt.sub(hre.ethers.utils.parseUnits("60", 18))
+      maxDebt.sub(ethers.utils.parseUnits("60", 18))
     ]
   );
 
-  // For now comment out if we want to be more efficient and use this later
-  // const functionData = fiatActions.interface.encodeFunctionData(
-  //   'buyCollateralAndModifyDebt',
-  //   [
-  //     fiatDaiVaultAddress,
-  //     proxyAddress,
-  //     signer.address,
-  //     signer.address,
-  //     hre.ethers.utils.parseUnits("1000", 18),
-  //     hre.ethers.utils.parseUnits("500", 18),
-  //     [
-  //       balancerVaultAddress,
-  //       elementDaiTrancheAddresses.ptPool.poolId,
-  //       daiAddress,
-  //       daiPTAddress,
-  //       hre.ethers.utils.parseUnits("1000", 18),
-  //       deadline,
-  //       hre.ethers.utils.parseUnits("1000", 18),
-  //     ]
-  //   ]
-  // );
-
   await userProxy.execute(fiatActionAddress, functionData);
 
-  const fiatERC20 = await hre.ethers.getContractAt("ERC20", fiatAddress, signer);
+  const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
 
-  console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
+  console.log("Current Fiat Balance: ", ethers.utils.formatUnits(fiatBalance, decimals));
 
-  await fiatERC20.approve(fiatCurvePoolAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-  const curvePool = await hre.ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
+  await fiatERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
+  const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
   await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
 
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
