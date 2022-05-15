@@ -38,9 +38,26 @@ async function main() {
 
   await seedSigner(startingDaiBalance);
 
+  const {
+    gasDai,
+    interestDai,
+    finalDaiBalance,
+    daiEarned
+  } = await leverageCycle(startingDaiBalance)
+
+  const earnedFixed = Number(ethers.utils.formatUnits(daiEarned, DECIMALS));
+  const startingFixed = Number(ethers.utils.formatUnits(startingDaiBalance, DECIMALS));
+  const netAPY = earnedFixed/startingFixed/MATURITY_YEAR_FACTOR;
+
+  console.log("Net APY: ", netAPY);
+}
+
+async function leverageCycle(amount) {
+  const signer = (await ethers.getSigners())[0];
+
   const startingEth = await signer.getBalance();
 
-  const ptBalance = await purchasePTs(startingDaiBalance);
+  const ptBalance = await purchasePTs(amount);
   const fiatDebt = await collateralizeForFiat();
   const daiBalance = await curveSwapFiatForDai();
 
@@ -48,14 +65,17 @@ async function main() {
   const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
   const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
-  const daiEarned = finalDaiBalance.sub(startingDaiBalance);
-  const earnedFixed = Number(ethers.utils.formatUnits(daiEarned, DECIMALS));
-  const startingFixed = Number(ethers.utils.formatUnits(startingDaiBalance, DECIMALS));
-  const netAPY = earnedFixed/startingFixed/MATURITY_YEAR_FACTOR;
+  const daiEarned = finalDaiBalance.sub(amount);
 
   console.log("Final Dai Balance: ", ethers.utils.formatUnits(finalDaiBalance, DECIMALS));
   console.log("Dai Gained: ", ethers.utils.formatUnits(daiEarned, DECIMALS));
-  console.log("Net APY: ", netAPY);
+
+  return {
+    gasDai,
+    interestDai,
+    finalDaiBalance,
+    daiEarned,
+  }
 }
 
 async function seedSigner(daiAmount) {
