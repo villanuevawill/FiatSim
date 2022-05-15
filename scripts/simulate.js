@@ -30,10 +30,39 @@ const MATURITY_YEAR_FACTOR = (TERM_MATURITY - CURRENT_TIME) / YEAR_SECONDS;
 const FIAT_INTEREST_RATE = .01;
 const FIAT_PRICE_DAI = 1;
 
+const DAI_BALANCE_START = 500;
+const DAI_BALANCE_INCREMENT = 500;
+const DAI_BALANCE_END = 200000;
+
 async function main() {
+  let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
+  const outputData = [];
+
+  await (async () => {
+    for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
+      const output = await fiatLeverage(i);
+      const serialized = {};
+
+      for (const [key, value] of Object.entries(output)) {
+        if (value instanceof BigNumber) {
+          serialized[key] = ethers.utils.formatUnits(value, DECIMALS);
+        } else {
+          serialized[key] = value;
+        }
+      }
+
+      outputData.push(serialized);
+      console.log("output entry: ", serialized);
+    }
+  })()
+
+  console.log(outputData);
+}
+
+async function fiatLeverage(amount) {
   const signer = (await ethers.getSigners())[0];
 
-  const startingDaiBalanceFixed = 10000;
+  const startingDaiBalanceFixed = amount;
 
   const startingDaiBalance = ethers.utils.parseUnits(Number(startingDaiBalanceFixed).toString(), DECIMALS);
   let daiBalance = startingDaiBalance;
@@ -41,8 +70,10 @@ async function main() {
   await seedSigner(startingDaiBalance);
   let totalDaiEarned = ethers.utils.parseUnits("0");
   let totalDaiBalance = ethers.utils.parseUnits("0");
+  let totalInterestPaid = ethers.utils.parseUnits("0");
+
   let daiEarned = BigNumber.from(0);
-  let stopped = false;
+  let cycles = 0;
 
   await (async () => {
     while (daiEarned.gte(BigNumber.from(0))) {
@@ -55,10 +86,12 @@ async function main() {
       } = receipt;
 
       daiEarned = receipt.daiEarned;
-      daiBalance = receipt.daiBalance;
 
       if (daiEarned.gte(BigNumber.from(0))) {
         totalDaiEarned = totalDaiEarned.add(daiEarned);
+        totalInterestPaid = totalInterestPaid.add(interestDai);
+        daiBalance = receipt.daiBalance;
+        cycles++;
       }
     }
   })();
@@ -67,6 +100,15 @@ async function main() {
 
   const netAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
   console.log("Final Net APY: ", netAPY);
+
+  return {
+    cycles,
+    startingDaiBalance,
+    totalDaiEarned,
+    totalInterestPaid,
+    daiBalance,
+    netAPY,
+  }
 }
 
 async function leverageCycle(amount) {
@@ -98,6 +140,7 @@ async function leverageCycle(amount) {
 
 async function seedSigner(daiAmount) {
   const signer = (await ethers.getSigners())[0];
+
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
     params: [daiWhaleAddress],
@@ -110,6 +153,14 @@ async function seedSigner(daiAmount) {
     daiWhaleAddress,
     ethers.utils.parseEther("10.0").toHexString()
   ]);
+
+  // first zero out balance
+  const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
+  const currentBalance = await daiERC20.balanceOf(signer.address);
+
+  if (currentBalance.gt(BigNumber.from(0))) {
+    daiERC20.transfer(daiWhaleAddress, currentBalance);
+  }
 
   const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
 
@@ -165,7 +216,6 @@ async function collateralizeForFiat() {
   // This method of calculating takes into account the accumulator interest
   // this means you can never be liquidated
   const fairPrice = await vault.fairPrice(0, true, false);
-  console.log("original fair price: ", fairPrice);
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
@@ -180,6 +230,7 @@ async function collateralizeForFiat() {
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
   const receiptData = await receipt.wait();
+
   const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
 
   const userProxy = await ethers.getContractAt("IPRBProxy", proxyAddress);
@@ -195,7 +246,7 @@ async function collateralizeForFiat() {
       signer.address,
       signer.address,
       ptBalance,
-      maxDebt.sub(ethers.utils.parseUnits("60", 18))
+      maxDebt.sub(ethers.utils.parseUnits("20", 18))
     ]
   );
 
