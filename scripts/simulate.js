@@ -53,6 +53,17 @@ async function main() {
 
       outputData.push(serialized);
       console.log("output entry: ", serialized);
+      await network.provider.request({
+        method: "hardhat_reset",
+        params: [
+          {
+            forking: {
+              jsonRpcUrl: process.env.ALCHEMY_URL,
+              blockNumber: process.env.BLOCK_NUMBER,
+            },
+          },
+        ],
+      });
     }
   })()
 

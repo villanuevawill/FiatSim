@@ -24,6 +24,9 @@ module.exports = {
   solidity: {
     compilers: [
       {
+        version: "0.6.12",
+      },
+      {
         version: "0.7.3",
       },
       {
@@ -31,7 +34,7 @@ module.exports = {
       },
       {
         version: "0.8.4",
-      }
+      },
     ]
   },
   networks: {
@@ -40,13 +43,13 @@ module.exports = {
       accounts: [
         {
           balance: "10000000000000000000000",
-          privateKey: "PRIVATE_KEY",
+          privateKey: process.env.PRIVATE_KEY,
         },
       ],
       forking: {
-        url: 'ALCHEMY_KEY',
-        blockNumber: 14738270
-      },
+        url: process.env.ALCHEMY_URL,
+        blockNumber: process.env.BLOCK_NUMBER
+      }
     },
   },
   gasReporter: {
