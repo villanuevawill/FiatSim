@@ -47,7 +47,7 @@ async function main() {
   const endingEth = await signer.getBalance();
   const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
-  const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai);
+  const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
   const daiEarned = finalDaiBalance.sub(startingDaiBalance);
   const earnedFixed = Number(ethers.utils.formatUnits(daiEarned, DECIMALS));
   const startingFixed = Number(ethers.utils.formatUnits(startingDaiBalance, DECIMALS));
