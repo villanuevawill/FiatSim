@@ -18,8 +18,6 @@ interface ICurveFi {
     uint256 dx
   ) external view returns (uint256);
   function coins(uint256 arg0) external view returns (address);
-  function underlying_coins(int128 arg0) external view returns (address);
-
   function add_liquidity(
     uint256[2] calldata amounts,
     uint256 deadline
@@ -36,8 +34,8 @@ interface ICurveFi {
     int128 j,
     uint256 dx,
     uint256 min_dy,
-    uint256 deadline
-  ) external;
+    address _receiver
+  ) external returns (uint256);
   function remove_liquidity(
     uint256 _amount,
     uint256 deadline,

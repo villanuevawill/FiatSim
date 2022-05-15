@@ -120,7 +120,7 @@ async function main() {
       signer.address,
       signer.address,
       ptBalance,
-      maxDebt.sub(hre.ethers.utils.parseUnits("40", 18))
+      maxDebt.sub(hre.ethers.utils.parseUnits("60", 18))
     ]
   );
 
@@ -154,7 +154,11 @@ async function main() {
   console.log("Current Fiat Balance: ", hre.ethers.utils.formatUnits(fiatBalance, decimals));
 
   await fiatERC20.approve(fiatCurvePoolAddress, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-  const exchange = await curvePool.exchange_underlying(0, 1, hre.ethers.utils.parseUnits("4000", 18), hre.ethers.utils.parseUnits("2000", 18));
+  const curvePool = await hre.ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
+  await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
+
+  const newDaiBalance = await daiERC20.balanceOf(signer.address);
+  console.log("Swapped and received Dai: ", newDaiBalance);
 }
 
 
