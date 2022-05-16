@@ -8,6 +8,7 @@ const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
 const fs = require('fs');
+const { network } = require("hardhat");
 
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
@@ -34,6 +35,23 @@ const FIAT_PRICE_DAI = 1;
 const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
 const DAI_BALANCE_END = 150000;
+
+hre.ethers.provider.on("block", async (blockNumber) => {
+  feeDataOld = await hre.ethers.provider.getFeeData()
+  await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+  feeDataNew = await hre.ethers.provider.getFeeData()
+  console.log(`Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
+});
+
+async function updateGasPriceIfNecesary() {
+  feeDataOld = await hre.ethers.provider.getFeeData()
+  if (Number(hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)) != 30) {
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+    feeDataNew = await hre.ethers.provider.getFeeData()
+    blocknumber = await hre.ethers.provider.getBlockNumber()
+    console.log(`surprise gas update! Block ${blocknumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
+  }
+}
 
 async function main() {
   let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
@@ -148,8 +166,6 @@ async function fiatLeverage(amount) {
 }
 
 async function leverageCycle(amount) {
-  await network.provider.send("hardhat_setNextBlockBaseFeePerGas",
-    [`0x${Number(40*1e9).toString(16)}`]);
   const signer = (await ethers.getSigners())[0];
 
   const startingEth = await signer.getBalance();
@@ -166,20 +182,20 @@ async function leverageCycle(amount) {
   const daiEarned = daiBalanceOnMaturity.sub(amount);
   const netAPY = daiEarned/amount/MATURITY_YEAR_FACTOR;
 
-  ethersGasPrice = hre.ethers.utils.formatUnits(await hre.ethers.provider.getGasPrice(),9)
   feeData = await hre.ethers.provider.getFeeData()
-  console.log(`gasPrice: ${hre.ethers.utils.formatUnits(feeData.gasPrice,9)}
-  maxFeePerGas: ${hre.ethers.utils.formatUnits(feeData.maxFeePerGas,9)}
-  maxPriorityFeePerGas: ${hre.ethers.utils.formatUnits(feeData.maxPriorityFeePerGas,9)}`)
-  gasPrice = hre.network.config.gasPrice/10**9
-
+  gasPrice = hre.ethers.utils.formatUnits(feeData.gasPrice,9)
+  updateGasPriceIfNecesary()
+  // console.log(`gasPrice: ${hre.ethers.utils.formatUnits(feeData.gasPrice,9)}
+  // maxFeePerGas: ${hre.ethers.utils.formatUnits(feeData.maxFeePerGas,9)}
+  // maxPriorityFeePerGas: ${hre.ethers.utils.formatUnits(feeData.maxPriorityFeePerGas,9)}`)
+  
   console.log('profit calculation:'
     + '\n  - start with Dai  : ' + Math.round(amount / 10 ** 18)
     + '\n  + swap for PTs    : ' + Math.round(ptBalance / 10 ** 18)
     + '\n  - borrow FIAT     : ' + Math.round(fiatDebt / 10 ** 18)
     + '\n  + swap for Dai    : ' + Math.round(daiBalance / 10 ** 18)
     + '\n  - pay interest    : ' + Math.round(interestDai / 10 ** 18)
-    + '\n  - pay gas         : ' + Math.round(gasDai / 10 ** 18) + ' gas price: ' + Math.round(ethersGasPrice*100)/100
+    + '\n  - pay gas         : ' + Math.round(gasDai / 10 ** 18) + ' gas price: ' + Math.round(gasPrice*100)/100
     + '\n  = daiEarned       : ' + Math.round(daiEarned / 10 ** 18)
     + '\n  = net APY         : ' + Math.round(netAPY * 100 * 100) / 100 + '%'
   );

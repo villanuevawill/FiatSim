@@ -47,8 +47,8 @@ module.exports = {
         },
       ],
       forking: {
-        url: process.env.ALCHEMY_URL,
-        blockNumber: process.env.BLOCK_NUMBER
+        url: process.env.ALCHEMY_URL, 
+        blockNumber: Number(process.env.BLOCK_NUMBER)
       }
     },
   },
