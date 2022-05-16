@@ -299,8 +299,9 @@ async function curveSwapFiatForDai() {
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
-  
-  console.log("Swapped and received Dai: ", ethers.utils.formatUnits(newDaiBalance, DECIMALS));
+
+  reserves0 = await curvePool.balances(0);  reserves1 = await curvePool.balances(1);
+  console.log(`Swapped and received ${ethers.utils.formatUnits(newDaiBalance, DECIMALS)} Dai. Reserves: [${Math.round(hre.ethers.utils.formatUnits(reserves0,18))},${Math.round(hre.ethers.utils.formatUnits(reserves1,18))}]`);
 
   return newDaiBalance;
 }
