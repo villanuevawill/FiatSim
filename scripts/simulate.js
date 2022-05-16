@@ -54,6 +54,7 @@ async function main() {
 
       outputData.push(serialized);
       console.log("output entry: ", serialized);
+
       await network.provider.request({
         method: "hardhat_reset",
         params: [
@@ -117,9 +118,15 @@ async function fiatLeverage(amount) {
     }
   })();
 
+  // Gas for buying fiat, settling collateral and redeeming PTs
+  const settlementGasData = await getSettlementGasDai();
+  gasDai = gasDai.add(settlementGasData);
+  totalDaiEarned = totalDaiEarned.sub(gasDai);
+
   const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
 
   const netAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
+
   console.log("Final Net APY: ", netAPY);
 
   return {
@@ -186,7 +193,7 @@ async function seedSigner(daiAmount) {
 
   const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
 
-  const transaction = await daiERC20Whale.transfer(signer.address, daiAmount);
+  await daiERC20Whale.transfer(signer.address, daiAmount);
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
   console.log("confirmed transferred balance: ", balanceOfSigner);
@@ -294,6 +301,7 @@ async function curveSwapFiatForDai() {
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
   await fiatERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
+
   const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
   await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
 
@@ -303,6 +311,35 @@ async function curveSwapFiatForDai() {
   console.log("Swapped and received Dai: ", ethers.utils.formatUnits(newDaiBalance, DECIMALS));
 
   return newDaiBalance;
+}
+
+async function getSettlementGasDai() {
+  const signer = (await ethers.getSigners())[0];
+
+  // for now just hardcode the amounts
+  const settlementLimits = {
+    modifyCollateralAndDebt: ethers.utils.parseUnits("317540", DECIMALS),
+    approveDaiCurve: ethers.utils.parseUnits("46458", DECIMALS),
+    swapDaiForFiat: ethers.utils.parseUnits("276871", DECIMALS),
+    redeemPTs: ethers.utils.parseUnits("145141", DECIMALS)
+  };
+
+  // get gas price through alchemy
+  const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
+  const tx = await daiERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
+  const receipt = await tx.wait();
+  const gasPrice = ethers.utils.parseUnits(receipt.effectiveGasPrice.toString(), "wei");
+
+  let totalGasSpent = BigNumber.from(0);
+  for (const key in settlementLimits) {
+    totalGasSpent = totalGasSpent.add(dsMath.wmul(gasPrice, settlementLimits[key]));
+  }
+
+
+  const totalGasSpentDai = dsMath.wdiv(totalGasSpent, ethers.utils.parseUnits(DAI_PRICE_ETH.toString(), DECIMALS));
+
+  console.log("settlement gas spent in DAI: ", ethers.utils.formatUnits(totalGasSpentDai, DECIMALS));
+  return totalGasSpentDai;
 }
 
 
