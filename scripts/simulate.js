@@ -8,6 +8,7 @@ const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
 const fs = require('fs');
+const { performance } = require('perf_hooks');
 
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
@@ -40,8 +41,11 @@ async function main() {
   const outputData = [];
 
   await (async () => {
+    // var stream = fs.createWriteStream("fiatsim.json", {flags:'a'});
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
+      startTime = performance.now()
       const output = await fiatLeverage(i);
+      console.log('Time to run fiatLeverage: ', Math.round(performance.now() - startTime),'ms');
       const serialized = {};
 
       for (const [key, value] of Object.entries(output)) {
@@ -54,7 +58,9 @@ async function main() {
 
       outputData.push(serialized);
       console.log("output entry: ", serialized);
-      await network.provider.request({
+      writeFile(outputData);
+      startTime = performance.now()
+      await network.provider.request({ // reset hardhat
         method: "hardhat_reset",
         params: [
           {
@@ -65,18 +71,20 @@ async function main() {
           },
         ],
       });
-    }
-  })()
+      console.log('Time to reset hardhat: ', Math.round(performance.now() - startTime),'ms');
+    } // end for loop across fiatLeverage
+  })() // end main
+}
 
-  console.log(outputData);
-  const data = JSON.stringify(outputData);
-
-  fs.writeFile('fiatsim.json', data, (err) => {
+function writeFile(data) {
+  startTime = performance.now()
+  fs.writeFileSync('fiatsim.json', JSON.stringify(data), (err) => {
     if (err) {
-        throw err;
+      throw err;
     }
     console.log("JSON data is saved.");
   });
+  console.log("Time to write file: ", performance.now() - startTime,'ms');
 }
 
 async function fiatLeverage(amount) {
@@ -87,7 +95,9 @@ async function fiatLeverage(amount) {
   const startingDaiBalance = ethers.utils.parseUnits(Number(startingDaiBalanceFixed).toString(), DECIMALS);
   let daiBalance = startingDaiBalance;
 
+  startTime = performance.now()
   await seedSigner(startingDaiBalance);
+  console.log('Time to seed signer: ', Math.round(performance.now() - startTime),'ms');
   let totalDaiEarned = ethers.utils.parseUnits("0");
   let totalDaiBalance = ethers.utils.parseUnits("0");
   let totalInterestPaid = ethers.utils.parseUnits("0");
@@ -113,13 +123,13 @@ async function fiatLeverage(amount) {
         daiBalance = receipt.daiBalance;
         cycles++;
       }
-    }
+    } // end while loop across leverageCycle
   })();
 
   const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
-
   const netAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
-  console.log("Final Net APY: ", netAPY);
+  // console.log("Final Net APY: ", netAPY);
+  showProfit(startingDaiBalanceFixed, ptBalance, fiatDebtCost, totalInterestPaid, gasDai, totalDaiEarned, netAPY);
 
   return {
     cycles,
@@ -136,15 +146,19 @@ async function leverageCycle(amount) {
 
   const startingEth = await signer.getBalance();
 
-  const ptBalance = await purchasePTs(amount);
+  const {ptBalance,leftoverDai} = await purchasePTs(amount);
   const fiatDebt = await collateralizeForFiat();
   const daiBalance = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
   const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
-  const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
+  const fiatDebtCost = dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString()))
+  const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(fiatDebtCost);
   const daiEarned = finalDaiBalance.sub(amount);
+  const netAPY = daiEarned/amount/MATURITY_YEAR_FACTOR;
+
+  showProfit(amount, ptBalance, leftoverDai, fiatDebtCost, interestDai, gasDai, daiEarned, netAPY);
 
   console.log("Final Dai Balance: ", ethers.utils.formatUnits(finalDaiBalance, DECIMALS));
   console.log("Dai Gained: ", ethers.utils.formatUnits(daiEarned, DECIMALS));
@@ -156,6 +170,18 @@ async function leverageCycle(amount) {
     daiBalance,
     daiEarned,
   }
+}
+
+function showProfit(amount, ptBalance, leftoverDai, fiatDebtCost, interestDai, gasDai, daiEarned, netAPY) {
+  console.log('profit calculation:'
+    + '\n  - start with Dai  : ' + Math.round(amount / 10 ** 18)
+    + '\n  + swap for PTs    : ' + Math.round(ptBalance / 10 ** 18) + ' using ' + Math.round(amount - leftoverDai) + ' Dai'
+    + '\n  - borrow FIAT     : ' + Math.round(fiatDebtCost / 10 ** 18)
+    + '\n  - pay interest    : ' + Math.round(interestDai / 10 ** 18)
+    + '\n  - pay gas         : ' + Math.round(gasDai / 10 ** 18)
+    + '\n  = daiEarned       : ' + Math.round(daiEarned / 10 ** 18)
+    + '\n  = net APY         : ' + Math.round(netAPY * 100 * 100) / 100 + '%'
+  );
 }
 
 async function seedSigner(daiAmount) {
@@ -216,16 +242,19 @@ async function purchasePTs(amount) {
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
-  const bal = await daiERC20.balanceOf(signer.address);
+  const daiBalance = await daiERC20.balanceOf(signer.address);
 
   await ccPool.swap(singleSwap, funds, limit, deadline);
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
 
-  console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, DECIMALS));
+  console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, DECIMALS)
+    + 'for ' + ethers.utils.formatUnits(amount - daiBalance, DECIMALS)
+    + ', left over ' + ethers.utils.formatUnits(daiBalance, DECIMALS) + ' Dai'
+    );
 
-  return ptBalance;
+  return {ptBalance, daiBalance};
 }
 
 async function collateralizeForFiat() {
