@@ -71,7 +71,7 @@ async function main() {
       }
 
       outputData.push(serialized);
-      console.log("output entry: ", serialized);
+      console.log(`output entry: ${serialized}`);
       await network.provider.request({
         method: "hardhat_reset",
         params: [
@@ -93,7 +93,7 @@ async function main() {
     if (err) {
         throw err;
     }
-    console.log("JSON data is saved.");
+    console.log(`JSON data is saved.`);
   });
 }
 
@@ -152,7 +152,7 @@ async function fiatLeverage(amount) {
   const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
 
   const netAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
-  console.log("Final Net APY: ", netAPY);
+  console.log(`Final Net APY: ${netAPY}`);
 
   return {
     cycles,
@@ -200,8 +200,8 @@ async function leverageCycle(amount) {
     + '\n  = net APY         : ' + Math.round(netAPY * 100 * 100) / 100 + '%'
   );
 
-  console.log("Dai Balance on Maturity: ", ethers.utils.formatUnits(daiBalanceOnMaturity, DECIMALS));
-  console.log("Dai Gained: ", ethers.utils.formatUnits(daiEarned, DECIMALS));
+  console.log(`Dai Balance on Maturity: ${ethers.utils.formatUnits(daiBalanceOnMaturity, DECIMALS)}`);
+  console.log(`Dai Gained: ${ethers.utils.formatUnits(daiEarned, DECIMALS)}`);
 
   return {
     gasDai,
@@ -245,7 +245,7 @@ async function seedSigner(daiAmount) {
   const transaction = await daiERC20Whale.transfer(signer.address, daiAmount);
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
-  console.log("confirmed transferred balance: ", balanceOfSigner);
+  console.log(`confirmed transferred balance: ${balanceOfSigner}`);
 }
 
 async function purchasePTs(amount) {
@@ -281,7 +281,7 @@ async function purchasePTs(amount) {
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
 
-  console.log("PTs Acquired: ", ethers.utils.formatUnits(ptBalance, DECIMALS));
+  console.log(`PTs Acquired: ${ethers.utils.formatUnits(ptBalance, DECIMALS)}`);
 
   return ptBalance;
 }
@@ -308,8 +308,8 @@ async function collateralizeForFiat() {
   const virtualRate = await publican.callStatic.virtualRate(fiatDaiVaultAddress);
   const normalizedDebt = dsMath.wdiv(maxDebt, virtualRate);
 
-  console.log("Max Debt: ", maxDebt);
-  console.log("Normalized Debt: ", normalizedDebt);
+  console.log(`Max Debt: ${maxDebt}`);
+  console.log(`Normalized Debt: ${normalizedDebt}`);
 
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
@@ -339,7 +339,7 @@ async function collateralizeForFiat() {
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
 
-  console.log("Current Fiat Balance: ", ethers.utils.formatUnits(fiatBalance, DECIMALS));
+  console.log(`Current Fiat Balance: ${ethers.utils.formatUnits(fiatBalance, DECIMALS)}`);
 
   return fiatBalance;
 }
