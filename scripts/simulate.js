@@ -91,6 +91,7 @@ async function fiatLeverage(amount) {
   let totalDaiEarned = ethers.utils.parseUnits("0");
   let totalDaiBalance = ethers.utils.parseUnits("0");
   let totalInterestPaid = ethers.utils.parseUnits("0");
+  let gasDai = ethers.utils.parseUnits("0");
 
   let daiEarned = BigNumber.from(0);
   let cycles = 0;
@@ -100,9 +101,8 @@ async function fiatLeverage(amount) {
       const receipt = await leverageCycle(daiBalance);
 
       const {
-        gasDai,
         interestDai,
-        finalDaiBalance,
+        daiBalanceOnMaturity,
       } = receipt;
 
       daiEarned = receipt.daiEarned;
@@ -111,6 +111,7 @@ async function fiatLeverage(amount) {
         totalDaiEarned = totalDaiEarned.add(daiEarned);
         totalInterestPaid = totalInterestPaid.add(interestDai);
         daiBalance = receipt.daiBalance;
+        gasDai = gasDai.add(receipt.gasDai);
         cycles++;
       }
     }
@@ -123,6 +124,7 @@ async function fiatLeverage(amount) {
 
   return {
     cycles,
+    gasDai,
     startingDaiBalance,
     totalDaiEarned,
     totalInterestPaid,
@@ -143,16 +145,16 @@ async function leverageCycle(amount) {
   const endingEth = await signer.getBalance();
   const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
-  const finalDaiBalance = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
-  const daiEarned = finalDaiBalance.sub(amount);
+  const daiBalanceOnMaturity = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
+  const daiEarned = daiBalanceOnMaturity.sub(amount);
 
-  console.log("Final Dai Balance: ", ethers.utils.formatUnits(finalDaiBalance, DECIMALS));
+  console.log("Dai Balance on Maturity: ", ethers.utils.formatUnits(daiBalanceOnMaturity, DECIMALS));
   console.log("Dai Gained: ", ethers.utils.formatUnits(daiEarned, DECIMALS));
 
   return {
     gasDai,
     interestDai,
-    finalDaiBalance,
+    daiBalanceOnMaturity,
     daiBalance,
     daiEarned,
   }
@@ -239,13 +241,19 @@ async function collateralizeForFiat() {
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
-  // Max debt that can be acquired
-  const maxDebt = dsMath.wmul(fairPrice, ptBalance);
-  console.log("Fair Price: ", ethers.utils.formatUnits(fairPrice, DECIMALS));
-  console.log("Max Debt: ", ethers.utils.formatUnits(maxDebt, DECIMALS));
 
   const fiatActions = await ethers
   .getContractAt("VaultEPTActions", fiatActionAddress, signer);
+
+  // Max debt that can be acquired, not normalized
+  const maxDebt = dsMath.wmul(fairPrice, ptBalance);
+  const publicanAddress = await fiatActions.publican();
+  const publican = await hre.ethers.getContractAt("IPublican", publicanAddress);
+  const virtualRate = await publican.callStatic.virtualRate(fiatDaiVaultAddress);
+  const normalizedDebt = dsMath.wdiv(maxDebt, virtualRate);
+
+  console.log("Max Debt: ", maxDebt);
+  console.log("Normalized Debt: ", normalizedDebt);
 
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
@@ -266,7 +274,7 @@ async function collateralizeForFiat() {
       signer.address,
       signer.address,
       ptBalance,
-      maxDebt.sub(ethers.utils.parseUnits("20", 18))
+      normalizedDebt
     ]
   );
 
