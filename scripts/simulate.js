@@ -272,6 +272,7 @@ async function seedSigner(daiAmount) {
   const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
 
   await daiERC20Whale.transfer(signer.address, daiAmount);
+  await mineNextBlock("Seeding Dai");
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
   console.log("confirmed transferred balance: ", balanceOfSigner);
@@ -413,6 +414,7 @@ async function getSettlementGasDai(usesFlashLoan) {
     approveDaiCurve: ethers.utils.parseUnits("46458", DECIMALS),
     swapDaiForFiat: ethers.utils.parseUnits("276871", DECIMALS),
     redeemPTs: ethers.utils.parseUnits("145141", DECIMALS),
+    purchasePTs: ethers.utils.parseUnits("123246", DECIMALS),
     ...(usesFlashLoan) && {flashLoan: ethers.utils.parseUnits("204493", DECIMALS) },
   };
 
