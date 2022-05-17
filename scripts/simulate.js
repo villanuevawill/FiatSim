@@ -8,7 +8,6 @@ const hre = require("hardhat");
 const ivault = require("../artifacts/contracts/balancer-core-v2/vault/interfaces/IVault.sol/IVault.json").abi;
 const dsMath = require("../helpers/dsmath-ethers");
 const fs = require('fs');
-const { type } = require("os");
 
 const daiWhaleAddress = "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503";
 const daiAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
@@ -69,9 +68,8 @@ async function simulate(usesFlashLoan) {
   await (async () => {
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
       runCount++
-      const output = await fiatLeverage(i, usesFlashLoan, runCount);
+      const output = await fiatLeverage(i, usesFlashLoan);
       const serialized = {run: runCount};
-      if (type(cycle) !== "undefined") { serialized["cycle"] = cycle; }
       for (const [key, value] of Object.entries(output)) {
         if (value instanceof BigNumber) {
           serialized[key] = Number(ethers.utils.formatUnits(value, DECIMALS));
@@ -154,7 +152,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
       // show aggregate stats only on the last loop
       if (daiBalanceOnMaturity.lt(BigNumber.from(0))) {
-        console.log(`run${runCount}: Leverage loop finished
+        console.log(`Leverage loop finished
         Fiat down to: ${receipt.effectiveFiatPrice}
         Reserves to [${Math.round(hre.ethers.utils.formatUnits(receipt.reserves0,18))},${Math.round(hre.ethers.utils.formatUnits(receipt.reserves1,18))}]
         FIAT makes up ${Math.round(receipt.reserves0.div(receipt.reserves0.add(receipt.reserves1))*100*100)/100}% of the reserves)}`)
