@@ -170,9 +170,9 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
       // show aggregate stats only on the last loop
       if (daiBalanceOnMaturity.lt(BigNumber.from(0))) {
         console.log(`Leverage loop finished
-        Fiat down to: ${receipt.effectiveFiatPrice}
-        Reserves to [${Math.round(hre.ethers.utils.formatUnits(receipt.reserves0,18))},${Math.round(hre.ethers.utils.formatUnits(receipt.reserves1,18))}]
-        FIAT makes up ${Math.round(receipt.reserves0.div(receipt.reserves0.add(receipt.reserves1))*100*100)/100}% of the reserves)}`)
+  Fiat down to: ${receipt.effectiveFiatPrice}
+  Reserves to [Dai: ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesDai,18))},Fiat ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesFiat,18))}]
+  FIAT makes up ${receipt.fiatPoolShare}% of the reserves`)
       }
     }
   })();
@@ -204,8 +204,8 @@ async function leverageCycle(amount, noGasTracking, cycle) {
 
   const startingEth = await signer.getBalance();
   const ptBalance = await purchasePTs(amount);
-  const fiatBalance = await collateralizeForFiat();
-  const { daiBalance, effectiveFiatPrice, reserves0, reserves1} = await curveSwapFiatForDai();
+  const fiatDebtInDai = await collateralizeForFiat();
+  const {daiBalance,effectiveFiatPrice,reservesDai,reservesFiat,fiatPoolShare} = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
 
@@ -239,8 +239,9 @@ async function leverageCycle(amount, noGasTracking, cycle) {
     ptBalance,
     fiatDebtinDai,
     effectiveFiatPrice,
-    reserves0,
-    reserves1
+    reservesDai,
+    reservesFiat,
+    fiatPoolShare
   }
 }
 
@@ -395,13 +396,15 @@ async function curveSwapFiatForDai() {
   await mineNextBlock(`curveSwap`);
   const daiBalance = await daiERC20.balanceOf(signer.address);
 
-  reserves0 = await curvePool.balances(0);  reserves1 = await curvePool.balances(1);
-  const effectiveFiatPrice = fiatBalance/(daiBalance-oldDaiBalance)
+  reservesDai = await curvePool.balances(0);  reservesFiat = await curvePool.balances(1);
+  const effectiveFiatPrice = 1/(fiatBalance/(daiBalance-oldDaiBalance))
+  const fiatPoolShare = Math.round(hre.ethers.utils.formatUnits(dsMath.wdiv(reservesFiat,(reservesFiat.add(reservesDai))),18)*100*10)/10
   console.log(`Swapped and received ${Math.round(ethers.utils.formatUnits(daiBalance, DECIMALS)*100)/100} Dai.
-    Reserves: [${Math.round(hre.ethers.utils.formatUnits(reserves0,18))},${Math.round(hre.ethers.utils.formatUnits(reserves1,18))}]
-    Effective Price: ${effectiveFiatPrice}`);
+  Effective Price: ${effectiveFiatPrice}
+  Reserves: [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDai,18))},Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiat,18))}]
+  Fiat makes up ${fiatPoolShare}% of the pool`);
 
-  return {daiBalance, effectiveFiatPrice, reserves0, reserves1, oldDaiBalance};
+  return {daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, oldDaiBalance, fiatPoolShare};
 }
 
 async function getSettlementGasDai(usesFlashLoan) {
