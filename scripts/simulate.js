@@ -38,6 +38,14 @@ const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
 const DAI_BALANCE_END = 150000;
 
+hre.ethers.provider.on("block", async (blockNumber) => {
+  feeDataOld = await hre.ethers.provider.getFeeData()
+  await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+  feeDataNew = await hre.ethers.provider.getFeeData()
+  blockNumber = await hre.ethers.provider.getBlockNumber()
+  console.log(`Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
+});
+
 async function main() {
   // update to use tasks instead of redundancy
   await simulate();
@@ -70,7 +78,8 @@ async function simulate(usesFlashLoan) {
           {
             forking: {
               jsonRpcUrl: process.env.ALCHEMY_URL,
-              blockNumber: process.env.BLOCK_NUMBER,
+              blockNumber: Number(process.env.BLOCK_NUMBER),
+            },
           },
         ],
       });
