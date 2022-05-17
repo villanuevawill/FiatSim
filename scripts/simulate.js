@@ -37,16 +37,17 @@ const FLASH_LOAN_INTEREST = .0009;
 const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
 const DAI_BALANCE_END = 150000;
+const GAS_PRICE = 30; // in gwei
 
-hre.ethers.provider.on("block", async (blockNumber) => {updateGasPriceIfNecesary("Expected")});
+// hre.ethers.provider.on("block", async (blockNumber) => {updateGasPriceIfNecesary("Expected")});
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
-  if (Number(hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)) != 30) {
-    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+  if (Number(hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)) != GAS_PRICE) {
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number((GAS_PRICE-1)*1e9).toString(16)}`]);
     feeDataNew = await hre.ethers.provider.getFeeData()
     blockNumber = await hre.ethers.provider.getBlockNumber()
-    console.log(`${text} new Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
+    // console.log(`${text} new Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
   }
   return blockNumber
 }
@@ -55,7 +56,6 @@ async function mineNextBlock(text) {
   const blockNumber = await updateGasPriceIfNecesary(text);
   await hre.ethers.provider.send("evm_mine", []);
   const block = await hre.ethers.provider.getBlock(blockNumber);
-  // console.log(block);
   console.log(`${text} block #${block.number} executed with ${block.transactions.length} transactions at baseFeePerGas ${hre.ethers.utils.formatUnits(block.baseFeePerGas,9)}`);
 }
 
@@ -85,6 +85,15 @@ async function simulate(usesFlashLoan) {
       outputData.push(serialized);
       console.log("output entry: ", serialized);
 
+      const data = JSON.stringify(outputData);
+
+      fs.writeFile(usesFlashLoan ? 'fiatsim.json' : "fiatsim_flashloan.json", data, (err) => {
+        if (err) {
+            throw err;
+        }
+        console.log("JSON data is saved.");
+      });
+
       await hre.network.provider.request({
         method: "hardhat_reset",
         params: [
@@ -100,14 +109,6 @@ async function simulate(usesFlashLoan) {
   })()
 
   console.log(outputData);
-  const data = JSON.stringify(outputData);
-
-  fs.writeFile(usesFlashLoan ? 'fiatsim.json' : "fiatsim_flashloan.json", data, (err) => {
-    if (err) {
-        throw err;
-    }
-    console.log("JSON data is saved.");
-  });
 }
 
 async function fiatLeverage(amount, usesFlashLoan) {
@@ -154,7 +155,7 @@ async function fiatLeverage(amount, usesFlashLoan) {
   })();
 
   // Gas for buying fiat, settling collateral, redeeming PTs and flash loans if we need it
-  const settlementGasData = await getSettlementGasDai(usesFlashLoan);
+  const settlementGasData = await getSettlementGasDai(GAS_PRICE,usesFlashLoan);
   gasDai = gasDai.add(settlementGasData);
   totalDaiEarned = totalDaiEarned.sub(gasDai);
 
@@ -280,7 +281,7 @@ async function purchasePTs(amount) {
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
   const bal = await daiERC20.balanceOf(signer.address);
 
-  receipt = await ccPool.swap(singleSwap, funds, limit, deadline);
+  await ccPool.swap(singleSwap, funds, limit, deadline);
   await mineNextBlock("purchasePTs");
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
@@ -312,8 +313,7 @@ async function collateralizeForFiat() {
   const virtualRate = await publican.callStatic.virtualRate(fiatDaiVaultAddress);
   const normalizedDebt = dsMath.wdiv(maxDebt, virtualRate);
 
-  console.log("Max Debt: ", maxDebt);
-  console.log("Normalized Debt: ", normalizedDebt);
+  console.log(`Max Debt, Actual: ${hre.ethers.utils.formatUnits(maxDebt,18)}, Normalized: ${hre.ethers.utils.formatUnits(normalizedDebt,18)}`);
 
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
@@ -340,7 +340,7 @@ async function collateralizeForFiat() {
   );
 
   await userProxy.execute(fiatActionAddress, functionData);
-  mineNextBlock('collateralizeForFiat');
+  await mineNextBlock('collateralizeForFiat');
 
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
@@ -369,7 +369,7 @@ async function curveSwapFiatForDai() {
   return newDaiBalance;
 }
 
-async function getSettlementGasDai(usesFlashLoan) {
+async function getSettlementGasDai(gasPrice,usesFlashLoan) {
   const signer = (await ethers.getSigners())[0];
 
   // for now just hardcode the amounts
@@ -381,15 +381,9 @@ async function getSettlementGasDai(usesFlashLoan) {
     ...(usesFlashLoan) && {flashLoan: ethers.utils.parseUnits("204493", DECIMALS) },
   };
 
-  // get gas price through alchemy
-  const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
-  const tx = await daiERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
-  const receipt = await tx.wait();
-  const gasPrice = ethers.utils.parseUnits(receipt.effectiveGasPrice.toString(), "wei");
-
   let totalGasSpent = BigNumber.from(0);
   for (const key in settlementLimits) {
-    totalGasSpent = totalGasSpent.add(dsMath.wmul(gasPrice, settlementLimits[key]));
+    totalGasSpent = totalGasSpent.add(dsMath.wmul(hre.ethers.utils.parseUnits(gasPrice.toString(),9), settlementLimits[key]));
   }
 
 
