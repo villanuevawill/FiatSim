@@ -311,7 +311,7 @@ async function collateralizeForFiat() {
   console.log("Normalized Debt: ", normalizedDebt);
 
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
-  const receipt = await proxyFactory.deployFor(signer.address);
+  var receipt = await proxyFactory.deployFor(signer.address);
   const receiptData = await receipt.wait();
 
   const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
@@ -334,7 +334,7 @@ async function collateralizeForFiat() {
   );
 
   await updateGasPriceIfNecesary("before collateralizeForFiat");
-  receipt = await userProxy.execute(fiatActionAddress, functionData);
+  var receipt = await userProxy.execute(fiatActionAddress, functionData);
   console.log(`collateralized for fiat with gas price ${hre.ethers.utils.formatUnits(receipt.gasPrice,9)} on block ${receipt.blockNumber}`);
 
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
