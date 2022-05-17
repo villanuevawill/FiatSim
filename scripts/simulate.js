@@ -52,7 +52,7 @@ async function updateGasPriceIfNecesary(text) {
 }
 
 async function mineNextBlock(text) {
-  const blockNumber = updateGasPriceIfNecesary(text);
+  const blockNumber = await updateGasPriceIfNecesary(text);
   await hre.ethers.provider.send("evm_mine", []);
   const block = await hre.ethers.provider.getBlock(blockNumber);
   // console.log(block);
@@ -317,6 +317,7 @@ async function collateralizeForFiat() {
 
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
   const receipt = await proxyFactory.deployFor(signer.address);
+  mineNextBlock('deployProxy')
   const receiptData = await receipt.wait();
 
   const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
