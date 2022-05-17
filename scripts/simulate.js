@@ -200,7 +200,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
 
   const startingEth = await signer.getBalance();
   const ptBalance = await purchasePTs(amount, cycle);
-  const fiatDebt = await collateralizeForFiat(cycle);
+  const fiatDebtInDai = await collateralizeForFiat(cycle);
   const {daiBalance,effectiveFiatPrice,reserves0,reserves1} = await curveSwapFiatForDai(cycle);
 
   const endingEth = await signer.getBalance();
@@ -208,10 +208,10 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   // If using a flash loan we can turn off the gas costs subsequent cycles
   gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
 
-  const interestFiat = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
+  const interestFiat = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
 
   let daiBalanceOnMaturity = noGasTracking ? BigNumber.from(0) : BigNumber.from(0).sub(gasDai);
-  const fiatDebtCost = dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString()));
+  const fiatDebtCost = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString()));
   daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(interestFiat).sub(fiatDebtCost).sub(amount).add(daiBalance);
   const netAPY = daiBalanceOnMaturity/amount/MATURITY_YEAR_FACTOR;
 
@@ -233,7 +233,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
     daiBalanceOnMaturity,
     daiBalance,
     ptBalance,
-    fiatDebt,
+    fiatDebtInDai,
     effectiveFiatPrice,
     reserves0,
     reserves1
