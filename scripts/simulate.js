@@ -85,6 +85,8 @@ async function main() {
 async function simulate(usesFlashLoan) {
   let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
   let runCount=0;
+  let outputData = [];
+
   await (async () => {
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
       runCount++
@@ -93,7 +95,6 @@ async function simulate(usesFlashLoan) {
       const serialized = serialize(output);
       serialized["run"] = runCount;
       
-      const outputData = [];
       outputData.push(serialized);
       console.log("output entry: ", serialized);
     
@@ -143,6 +144,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
   let daiBalanceOnMaturity = ethers.utils.parseUnits("0");
   let firstCycleGasDai = ethers.utils.parseUnits("0");
   let finalAPY = ethers.utils.parseUnits("0");
+  let startingPTBalance = ethers.utils.parseUnits("0");
 
   let cycleData = [];
   let aggregateCycleData = [];
@@ -155,6 +157,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
       if (cycle === 0) {
         firstCycleGasDai = receipt.gasDai;
+        startingPTBalance = receipt.ptBalance;
       }
 
       daiBalanceOnMaturity = receipt.daiBalanceOnMaturity;
@@ -193,12 +196,14 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         );
 
         aggregateCycle = {
+          startingDaiBalance,
           totalDaiUsedToPurchasePTs,
           totalInterestPaid,
           totalGasDai: gasDai.add(settlementGas),
           totalPTsCollateralized,
           finalDaiEarned,
           finalAPY,
+          leverage: dsMath.wdiv(totalPTsCollateralized, startingPTBalance),
           cycle,
         }
 
