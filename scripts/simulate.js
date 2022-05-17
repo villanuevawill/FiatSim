@@ -38,13 +38,18 @@ const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
 const DAI_BALANCE_END = 150000;
 
-hre.ethers.provider.on("block", async (blockNumber) => {
+hre.ethers.provider.on("block", async (blockNumber) => {updateGasPriceIfNecesary("Expected")});
+
+async function updateGasPriceIfNecesary(text) {
+  // if (text!=="Expected") text="Unexpected";
   feeDataOld = await hre.ethers.provider.getFeeData()
-  await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
-  feeDataNew = await hre.ethers.provider.getFeeData()
-  blockNumber = await hre.ethers.provider.getBlockNumber()
-  console.log(`Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
-});
+  if (Number(hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)) != 30) {
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+    feeDataNew = await hre.ethers.provider.getFeeData()
+    blocknumber = await hre.ethers.provider.getBlockNumber()
+    console.log(`${text} new Block ${blocknumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
+  }
+}
 
 async function main() {
   // update to use tasks instead of redundancy
@@ -176,6 +181,7 @@ async function leverageCycle(amount, noGasTracking) {
 
   const startingEth = await signer.getBalance();
 
+  await updateGasPriceIfNecesary('before purchasePTs 1');
   const ptBalance = await purchasePTs(amount, 0);
   const fiatDebt = await collateralizeForFiat();
   const daiBalance = await curveSwapFiatForDai();
@@ -241,6 +247,7 @@ async function seedSigner(daiAmount) {
 
 async function purchasePTs(amount) {
   const signer = (await ethers.getSigners())[0];
+  await updateGasPriceIfNecesary('before purchasePTs 1.5');
 
   const ccPool =  await new ethers.Contract(balancerVaultAddress, ivault, signer);
 
@@ -267,7 +274,9 @@ async function purchasePTs(amount) {
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
   const bal = await daiERC20.balanceOf(signer.address);
 
-  await ccPool.swap(singleSwap, funds, limit, deadline);
+  await updateGasPriceIfNecesary('before purchasePTs 2');
+  receipt = await ccPool.swap(singleSwap, funds, limit, deadline);
+  console.log(`purchased PTs with gas price ${hre.ethers.utils.formatUnits(receipt.gasPrice,9)} on block ${receipt.blockNumber}`);
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
@@ -289,8 +298,7 @@ async function collateralizeForFiat() {
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
 
-  const fiatActions = await ethers
-  .getContractAt("VaultEPTActions", fiatActionAddress, signer);
+  const fiatActions = await ethers.getContractAt("VaultEPTActions", fiatActionAddress, signer);
 
   // Max debt that can be acquired, not normalized
   const maxDebt = dsMath.wmul(fairPrice, ptBalance);
@@ -325,7 +333,9 @@ async function collateralizeForFiat() {
     ]
   );
 
-  await userProxy.execute(fiatActionAddress, functionData);
+  await updateGasPriceIfNecesary("before collateralizeForFiat");
+  receipt = await userProxy.execute(fiatActionAddress, functionData);
+  console.log(`collateralized for fiat with gas price ${hre.ethers.utils.formatUnits(receipt.gasPrice,9)} on block ${receipt.blockNumber}`);
 
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
@@ -343,7 +353,9 @@ async function curveSwapFiatForDai() {
   await fiatERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
 
   const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
-  await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
+  await updateGasPriceIfNecesary("before curve swap");
+  receipt = await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
+  console.log(`swapped in curve with gas price ${hre.ethers.utils.formatUnits(receipt.gasPrice,9)} on block ${receipt.blockNumber}`);
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
