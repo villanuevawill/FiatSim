@@ -34,9 +34,9 @@ const GAS_PRICE = 17; // in gwei
 
 const FLASH_LOAN_INTEREST = .0009;
 
-const DAI_BALANCE_START = 15000; // original 10000
+const DAI_BALANCE_START = 2000; // original 10000
 const DAI_BALANCE_INCREMENT = 2000; // original 2000
-const DAI_BALANCE_END = 20000; // original 50000
+const DAI_BALANCE_END = 200000; // original 50000
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
@@ -83,17 +83,16 @@ async function simulate(usesFlashLoan) {
       console.log("output entry: ", serialized);
     
       const data = JSON.stringify(outputData);
-    
-      fs.writeFile(usesFlashLoan ? 'fiatsim.json' : "fiatsim_flashloan.json", data, (err) => {
-        if (err) {
-          throw err;
-        }
-        console.log(`run${runCount}: JSON data is saved.`);
-      });
-      
       await resetHardhat();
     }
   })()
+
+  fs.writeFile(usesFlashLoan ? "fiatsim_flashloan.json" : 'fiatsim.json', data, (err) => {
+    if (err) {
+      throw err;
+    }
+    console.log(`JSON data is saved.`);
+  });
 }
 
 async function resetHardhat() {
