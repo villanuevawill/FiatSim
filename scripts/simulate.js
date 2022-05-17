@@ -56,6 +56,26 @@ async function mineNextBlock(text) {
   console.log(`${text} block #${block.number} executed with ${block.transactions.length} transactions at baseFeePerGas ${hre.ethers.utils.formatUnits(block.baseFeePerGas,9)}`);
 }
 
+function serialize(data) {
+  if (data instanceof BigNumber) {
+    return Number(ethers.utils.formatUnits(data, DECIMALS));
+  }
+  if (typeof data !== 'object') {
+    return data;
+  }
+
+  let entry = {};
+  if (Array.isArray(data)) {
+    entry = [];
+  }
+
+  for (const [key, value] of Object.entries(data)) {
+    entry[key] = serialize(value);
+  }
+
+  return entry;
+}
+
 async function main() {
   // update to use tasks instead of redundancy
   await simulate();
@@ -69,23 +89,19 @@ async function simulate(usesFlashLoan) {
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
       runCount++
       const output = await fiatLeverage(i, usesFlashLoan);
-      const serialized = {run: runCount};
-      for (const [key, value] of Object.entries(output)) {
-        if (value instanceof BigNumber) {
-          serialized[key] = Number(ethers.utils.formatUnits(value, DECIMALS));
-        } else {
-          serialized[key] = value;
-        }
-      }
+
+      const serialized = serialize(output);
+      serialized["run"] = runCount;
       
       const outputData = [];
       outputData.push(serialized);
       console.log("output entry: ", serialized);
     
-      const data = JSON.stringify(outputData);
       await resetHardhat();
     }
   })()
+
+  const data = JSON.stringify(outputData);
 
   fs.writeFile(usesFlashLoan ? "fiatsim_flashloan.json" : 'fiatsim.json', data, (err) => {
     if (err) {
@@ -128,19 +144,23 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
   let firstCycleGasDai = ethers.utils.parseUnits("0");
   let finalAPY = ethers.utils.parseUnits("0");
 
-  let cycles = 0;
+  let cycleData = [];
+  let aggregateCycleData = [];
+  let finalResult = [];
+
+  let cycle = 0;
   await (async () => {
     while (daiBalanceOnMaturity.gte(BigNumber.from(0))) {
-      const receipt = await leverageCycle(daiBalance, usesFlashLoan && cycles > 0, cycles);
+      const receipt = await leverageCycle(daiBalance, usesFlashLoan && cycle > 0, cycle);
 
-      if (cycles === 0) {
+      if (cycle === 0) {
         firstCycleGasDai = receipt.gasDai;
       }
 
       daiBalanceOnMaturity = receipt.daiBalanceOnMaturity;
 
       // count aggregate stats only when we want to 
-      if (daiBalanceOnMaturity.gte(BigNumber.from(0)) || cycles === 0) {
+      if (daiBalanceOnMaturity.gte(BigNumber.from(0)) || cycle === 0) {
         totalDaiUsedToPurchasePTs = totalDaiUsedToPurchasePTs.add(ethers.utils.parseUnits(amount.toString(), DECIMALS));
         totalDaiEarned = totalDaiEarned.add(daiBalanceOnMaturity);
         totalInterestPaid = totalInterestPaid.add(receipt.fiatInterestinDai);
@@ -156,7 +176,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         const earnedFixed = Number(ethers.utils.formatUnits(finalDaiEarned, DECIMALS));
         finalAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
 
-        console.log(`aggregate cycle${cycles}: calculation:
+        console.log(`aggregate cycle${cycle}: calculation:
         + Total Dai Earned   : ${Math.round(hre.ethers.utils.formatUnits(totalDaiEarned, 18))}
         - Settlement Gas     : ${Math.round(hre.ethers.utils.formatUnits(settlementGas, 18))}
         - Dai on Hand        : ${Math.round(hre.ethers.utils.formatUnits(daiBalance, 18))}
@@ -164,7 +184,27 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
           = Final Dai Earned : ${Math.round(hre.ethers.utils.formatUnits(finalDaiEarned, 18))}
         = final APY          : ${Math.round(finalAPY * 100 * 100) / 100}%`);
 
-        cycles++;
+        // Record Cycle and Aggregate Data
+        cycleData.push(
+          {
+            cycle,
+            ...receipt,
+          }
+        );
+
+        aggregateCycle = {
+          totalDaiUsedToPurchasePTs,
+          totalInterestPaid,
+          totalGasDai: gasDai.add(settlementGas),
+          totalPTsCollateralized,
+          finalDaiEarned,
+          finalAPY,
+          cycle,
+        }
+
+        aggregateCycleData.push(aggregateCycle);
+
+        cycle++;
       }
 
       // show aggregate stats only on the last loop
@@ -177,6 +217,17 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
     }
   })();
 
+  // Pick the best cycle
+  let bestTerminatingCycle;
+  let terminatingAPY = Number.NEGATIVE_INFINITY;
+  for (const [key, value] of Object.entries(aggregateCycleData)) {
+    entryApy = value.finalAPY;
+    if (entryApy >= terminatingAPY) {
+      terminatingAPY = entryApy
+      bestTerminatingCycle = value;
+    }
+  }
+
   // If flash loan, add flash loan fee
   if (usesFlashLoan) {
     gasDai = firstCycleGasDai;
@@ -188,15 +239,10 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
   }
 
   return {
-    cycles,
-    gasDai,
-    startingDaiBalance,
-    totalDaiEarned,
-    totalInterestPaid,
-    daiBalance,
-    totalPTsCollateralized,
-    finalAPY,
-  }
+    result: bestTerminatingCycle,
+    cycles: cycleData,
+    aggregateCycles: aggregateCycleData,
+  };
 }
 
 async function leverageCycle(amount, noGasTracking, cycle) {
