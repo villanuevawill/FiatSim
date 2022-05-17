@@ -147,10 +147,8 @@ async function fiatLeverage(amount) {
   console.log(`Paid back ${totalFiatBorrowed} in fiat. Current balance is ${fiatBalance}.
     Effective price was: ${effectiveFiatPrice}.
     Fiat makes up ${Math.round(reserves0/(reserves0+reserves1)*100*100)/100}% of the reserves.`);
-
-    
+   
   const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
-
   const netAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
   console.log(`Final Net APY: ${netAPY}`);
 
@@ -172,31 +170,28 @@ async function leverageCycle(amount) {
 
   const ptBalance = await purchasePTs(amount);
   const fiatDebt = await collateralizeForFiat();
-  const {daiBalance,effectiveFiatPrice,reserves0,reserves1, oldDaiBalance} = await curveSwapFiatForDai();
+  const {daiBalance,effectiveFiatPrice,reserves0,reserves1} = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
   const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
-  const slippage = daiBalance.sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())))
+  const transactionFees = daiBalance.sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())))
   const daiBalanceOnMaturity = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())))
   const daiEarned = daiBalanceOnMaturity.sub(amount);
   const netAPY = daiEarned/amount/MATURITY_YEAR_FACTOR;
 
+  updateGasPriceIfNecesary()
   feeData = await hre.ethers.provider.getFeeData()
   gasPrice = hre.ethers.utils.formatUnits(feeData.gasPrice,9)
-  updateGasPriceIfNecesary()
-  // console.log(`gasPrice: ${hre.ethers.utils.formatUnits(feeData.gasPrice,9)}
-  // maxFeePerGas: ${hre.ethers.utils.formatUnits(feeData.maxFeePerGas,9)}
-  // maxPriorityFeePerGas: ${hre.ethers.utils.formatUnits(feeData.maxPriorityFeePerGas,9)}`)
   
   console.log('profit calculation:'
-    + '\n  - start with Dai  : ' + Math.round(amount / 10 ** 18)
-    + '\n  + swap for PTs    : ' + Math.round(ptBalance / 10 ** 18)
-    + '\n  - borrow FIAT     : ' + Math.round(fiatDebt / 10 ** 18)
-    + '\n  + swap for Dai    : ' + Math.round(daiBalance / 10 ** 18)
-    + '\n  - pay interest    : ' + Math.round(interestDai / 10 ** 18)
-    + '\n  - pay gas         : ' + Math.round(gasDai / 10 ** 18) + ' gas price: ' + Math.round(gasPrice*100)/100
-    + '\n  = daiEarned       : ' + Math.round(daiEarned / 10 ** 18)
+    + '\n  - start with Dai  : ' + Math.round(hre.ethers.utils.formatUnits(amount,18))
+    + '\n  + swap for PTs    : ' + Math.round(hre.ethers.utils.formatUnits(ptBalance,18))
+    + '\n  - borrow FIAT     : ' + Math.round(hre.ethers.utils.formatUnits(fiatDebt,18))
+    + '\n  + swap for Dai    : ' + Math.round(hre.ethers.utils.formatUnits(daiBalance,18))
+    + '\n  - pay interest    : ' + Math.round(hre.ethers.utils.formatUnits(interestDai,18))
+    + '\n  - pay gas         : ' + Math.round(hre.ethers.utils.formatUnits(gasDai,18)) + ' gas price: ' + Math.round(gasPrice*100)/100
+    + '\n  = daiEarned       : ' + Math.round(hre.ethers.utils.formatUnits(daiEarned,18))
     + '\n  = net APY         : ' + Math.round(netAPY * 100 * 100) / 100 + '%'
   );
 
