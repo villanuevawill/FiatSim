@@ -34,7 +34,7 @@ const GAS_PRICE = 17; // in gwei
 
 const FLASH_LOAN_INTEREST = .0009;
 
-const DAI_BALANCE_START = 2000; // original 10000
+const DAI_BALANCE_START = 6000; // original 10000
 const DAI_BALANCE_INCREMENT = 2000; // original 2000
 const DAI_BALANCE_END = 200000; // original 50000
 
@@ -174,6 +174,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         // Gas for buying fiat, settling collateral, redeeming PTs and flash loans if we need it
         const settlementGas = await getSettlementGasDai(usesFlashLoan);
         const ptsBought = await purchasePTs(daiBalance, true);
+        totalDaiUsedToPurchasePTs = totalDaiUsedToPurchasePTs.add(ptsBought);
         const finalDaiEarned = totalDaiEarned.sub(settlementGas).sub(daiBalance).add(ptsBought);
 
         const earnedFixed = Number(ethers.utils.formatUnits(finalDaiEarned, DECIMALS));
