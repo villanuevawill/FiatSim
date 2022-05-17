@@ -38,13 +38,26 @@ const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
 const DAI_BALANCE_END = 150000;
 
-hre.ethers.provider.on("block", async (blockNumber) => {
+hre.ethers.provider.on("block", async (blockNumber) => {updateGasPriceIfNecesary("Expected")});
+
+async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
-  await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
-  feeDataNew = await hre.ethers.provider.getFeeData()
-  blockNumber = await hre.ethers.provider.getBlockNumber()
-  console.log(`Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
-});
+  if (Number(hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)) != 30) {
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+    feeDataNew = await hre.ethers.provider.getFeeData()
+    blockNumber = await hre.ethers.provider.getBlockNumber()
+    console.log(`${text} new Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
+  }
+  return blockNumber
+}
+
+async function mineNextBlock(text) {
+  const blockNumber = updateGasPriceIfNecesary(text);
+  await hre.ethers.provider.send("evm_mine", []);
+  const block = await hre.ethers.provider.getBlock(blockNumber);
+  // console.log(block);
+  console.log(`${text} block #${block.number} executed with ${block.transactions.length} transactions at baseFeePerGas ${hre.ethers.utils.formatUnits(block.baseFeePerGas,9)}`);
+}
 
 async function main() {
   // update to use tasks instead of redundancy
@@ -267,7 +280,8 @@ async function purchasePTs(amount) {
   await daiERC20.approve(balancerVaultAddress, MAX_APPROVE);
   const bal = await daiERC20.balanceOf(signer.address);
 
-  await ccPool.swap(singleSwap, funds, limit, deadline);
+  receipt = await ccPool.swap(singleSwap, funds, limit, deadline);
+  await mineNextBlock("purchasePTs");
 
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
@@ -289,8 +303,7 @@ async function collateralizeForFiat() {
   const ptERC20 = await ethers.getContractAt("ERC20", daiPTAddress, signer);
   const ptBalance = await ptERC20.balanceOf(signer.address);
 
-  const fiatActions = await ethers
-  .getContractAt("VaultEPTActions", fiatActionAddress, signer);
+  const fiatActions = await ethers.getContractAt("VaultEPTActions", fiatActionAddress, signer);
 
   // Max debt that can be acquired, not normalized
   const maxDebt = dsMath.wmul(fairPrice, ptBalance);
@@ -326,6 +339,7 @@ async function collateralizeForFiat() {
   );
 
   await userProxy.execute(fiatActionAddress, functionData);
+  mineNextBlock('collateralizeForFiat');
 
   const fiatERC20 = await ethers.getContractAt("ERC20", fiatAddress, signer);
   const fiatBalance = await fiatERC20.balanceOf(signer.address);
@@ -343,7 +357,8 @@ async function curveSwapFiatForDai() {
   await fiatERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
 
   const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
-  await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
+  receipt = await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
+  mineNextBlock('curveSwap');
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
