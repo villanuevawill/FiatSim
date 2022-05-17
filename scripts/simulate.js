@@ -215,8 +215,8 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   const fiatInterestinDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
 
   let daiBalanceOnMaturity = noGasTracking ? BigNumber.from(0) : BigNumber.from(0).sub(gasDai);
-  const fiatDebtinDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString()));
-  daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(fiatInterestinDai).sub(fiatDebtinDai).sub(amount).add(daiBalance);
+  const fiatDebtCost = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits(Number(effectiveFiatPrice).toString()));
+  daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(interestFiat).sub(fiatDebtCost).sub(amount).add(daiBalance);
   const netAPY = daiBalanceOnMaturity/amount/MATURITY_YEAR_FACTOR;
 
   console.log(`cycle${cycle}: profit calculation:
