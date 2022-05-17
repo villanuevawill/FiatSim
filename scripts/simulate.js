@@ -153,9 +153,9 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
       // show aggregate stats only on the last loop
       if (daiBalanceOnMaturity.lt(BigNumber.from(0))) {
         console.log(`Leverage loop finished
-  Fiat down to: ${receipt.effectiveFiatPrice}
-  Reserves to [Dai: ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesDai,18))}, Fiat ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesFiat,18))}]
-  FIAT makes up ${receipt.fiatPoolShare}% of the reserves`)
+        Fiat down to: ${receipt.effectiveFiatPrice}
+        Reserves to [${Math.round(hre.ethers.utils.formatUnits(receipt.reserves0,18))},${Math.round(hre.ethers.utils.formatUnits(receipt.reserves1,18))}]
+        FIAT makes up ${Math.round(receipt.reserves0.div(receipt.reserves0.add(receipt.reserves1))*100*100)/100}% of the reserves)}`)
       }
     }
   })();
@@ -200,7 +200,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   const startingEth = await signer.getBalance();
   const ptBalance = await purchasePTs(amount);
   const fiatDebtInDai = await collateralizeForFiat();
-  const {daiBalance,effectiveFiatPrice,reservesDai,reservesFiat,fiatPoolShare} = await curveSwapFiatForDai();
+  const {daiBalance,effectiveFiatPrice,reserves0,reserves1} = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
 
@@ -210,7 +210,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   const interestFiat = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
 
   let daiBalanceOnMaturity = noGasTracking ? BigNumber.from(0) : BigNumber.from(0).sub(gasDai);
-  const fiatDebtCost = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits(Number(effectiveFiatPrice).toString()));
+  const fiatDebtCost = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString()));
   daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(interestFiat).sub(fiatDebtCost).sub(amount).add(daiBalance);
   const netAPY = daiBalanceOnMaturity/amount/MATURITY_YEAR_FACTOR;
 
@@ -234,9 +234,8 @@ async function leverageCycle(amount, noGasTracking, cycle) {
     ptBalance,
     fiatDebtInDai,
     effectiveFiatPrice,
-    reservesDai,
-    reservesFiat,
-    fiatPoolShare
+    reserves0,
+    reserves1
   }
 }
 
@@ -370,7 +369,7 @@ async function collateralizeForFiat(cycle) {
   return fiatBalance;
 }
 
-async function curveSwapFiatForDai() {
+async function curveSwapFiatForDai(cycle) {
   const signer = (await ethers.getSigners())[0];
 
   // get contracts
@@ -386,15 +385,13 @@ async function curveSwapFiatForDai() {
   await mineNextBlock(`curveSwap`);
   const daiBalance = await daiERC20.balanceOf(signer.address);
 
-  reservesDai = await curvePool.balances(0);  reservesFiat = await curvePool.balances(1);
-  const effectiveFiatPrice = 1/(fiatBalance/(daiBalance-oldDaiBalance))
-  const fiatPoolShare = Math.round(hre.ethers.utils.formatUnits(dsMath.wdiv(reservesFiat,(reservesFiat.add(reservesDai))),18)*100*10)/10
+  reserves0 = await curvePool.balances(0);  reserves1 = await curvePool.balances(1);
+  const effectiveFiatPrice = fiatBalance/(daiBalance-oldDaiBalance)
   console.log(`Swapped and received ${Math.round(ethers.utils.formatUnits(daiBalance, DECIMALS)*100)/100} Dai.
-  Effective Price: ${effectiveFiatPrice}
-  Reserves: [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDai,18))}, Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiat,18))}]
-  Fiat makes up ${fiatPoolShare}% of the pool`);
+    Reserves: [${Math.round(hre.ethers.utils.formatUnits(reserves0,18))},${Math.round(hre.ethers.utils.formatUnits(reserves1,18))}]
+    Effective Price: ${effectiveFiatPrice}`);
 
-  return {daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, oldDaiBalance, fiatPoolShare};
+  return {daiBalance, effectiveFiatPrice, reserves0, reserves1, oldDaiBalance};
 }
 
 async function getSettlementGasDai(usesFlashLoan) {
