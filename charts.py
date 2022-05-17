@@ -4,8 +4,8 @@ import json
 f = open('fiatsim.json')
 data = json.load(f)
 
-x = [x["startingDaiBalance"] for x in data]
-y = [y["finalAPY"] for y in data]
+x = [x["result"]["startingDaiBalance"] for x in data]
+y = [y["result"]["finalAPY"] for y in data]
 
 plt.plot(x, y)
 plt.title('APR per Dai Balance Folded')
