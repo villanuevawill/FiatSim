@@ -111,7 +111,7 @@ async function simulate(usesFlashLoan) {
   })()
 }
 
-async function fiatLeverage(amount, usesFlashLoan) {
+async function fiatLeverage(amount, usesFlashLoan, runCount) {
   const signer = (await ethers.getSigners())[0];
 
   const startingDaiBalanceFixed = amount;
