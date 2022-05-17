@@ -154,7 +154,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
       if (daiBalanceOnMaturity.lt(BigNumber.from(0))) {
         console.log(`Leverage loop finished
   Fiat down to: ${receipt.effectiveFiatPrice}
-  Reserves to [Dai: ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesDai,18))},Fiat ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesFiat,18))}]
+  Reserves to [Dai: ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesDai,18))}, Fiat ${Math.round(hre.ethers.utils.formatUnits(receipt.reservesFiat,18))}]
   FIAT makes up ${receipt.fiatPoolShare}% of the reserves`)
       }
     }
@@ -391,7 +391,7 @@ async function curveSwapFiatForDai() {
   const fiatPoolShare = Math.round(hre.ethers.utils.formatUnits(dsMath.wdiv(reservesFiat,(reservesFiat.add(reservesDai))),18)*100*10)/10
   console.log(`Swapped and received ${Math.round(ethers.utils.formatUnits(daiBalance, DECIMALS)*100)/100} Dai.
   Effective Price: ${effectiveFiatPrice}
-  Reserves: [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDai,18))},Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiat,18))}]
+  Reserves: [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDai,18))}, Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiat,18))}]
   Fiat makes up ${fiatPoolShare}% of the pool`);
 
   return {daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, oldDaiBalance, fiatPoolShare};
