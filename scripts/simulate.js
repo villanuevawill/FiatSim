@@ -36,14 +36,14 @@ const FLASH_LOAN_INTEREST = .0009;
 
 const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
-const DAI_BALANCE_END = 150000;
+const DAI_BALANCE_END = 50000;
 
 hre.ethers.provider.on("block", async (blockNumber) => {updateGasPriceIfNecesary("Expected")});
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
   if (Number(hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)) != 30) {
-    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(29*1e9).toString(16)}`]);
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas",[`0x${Number(16*1e9).toString(16)}`]);
     feeDataNew = await hre.ethers.provider.getFeeData()
     blockNumber = await hre.ethers.provider.getBlockNumber()
     console.log(`${text} new Block ${blockNumber}: gas price from ${hre.ethers.utils.formatUnits(feeDataOld.gasPrice,9)} to ${hre.ethers.utils.formatUnits(feeDataNew.gasPrice,9)}`);
@@ -55,7 +55,6 @@ async function mineNextBlock(text) {
   const blockNumber = updateGasPriceIfNecesary(text);
   await hre.ethers.provider.send("evm_mine", []);
   const block = await hre.ethers.provider.getBlock(blockNumber);
-  // console.log(block);
   console.log(`${text} block #${block.number} executed with ${block.transactions.length} transactions at baseFeePerGas ${hre.ethers.utils.formatUnits(block.baseFeePerGas,9)}`);
 }
 
@@ -99,7 +98,6 @@ async function simulate(usesFlashLoan) {
     }
   })()
 
-  console.log(outputData);
   const data = JSON.stringify(outputData);
 
   fs.writeFile(usesFlashLoan ? 'fiatsim.json' : "fiatsim_flashloan.json", data, (err) => {
@@ -125,25 +123,30 @@ async function fiatLeverage(amount, usesFlashLoan) {
   let gasDai = ethers.utils.parseUnits("0");
   let totalPTsCollateralized = ethers.utils.parseUnits("0");
   let totalDaiUsedToPurchasePTs = ethers.utils.parseUnits("0");
+  let daiBalanceOnMaturity = ethers.utils.parseUnits("0");
+  let firstCycleGasDai = ethers.utils.parseUnits("0");
 
   let daiEarned = BigNumber.from(0);
   let cycles = 0;
 
   await (async () => {
-    while (daiEarned.gte(BigNumber.from(0))) {
+    while (daiBalanceOnMaturity.gte(BigNumber.from(0))) {
       const receipt = await leverageCycle(daiBalance, usesFlashLoan && cycles > 0);
 
       const {
         interestDai,
-        daiBalanceOnMaturity,
         ptBalance,
       } = receipt;
 
-      daiEarned = receipt.daiEarned;
+      if (cycles === 0) {
+        firstCycleGasDai = receipt.gasDai;
+      }
 
-      if (daiEarned.gte(BigNumber.from(0))) {
+      daiBalanceOnMaturity = receipt.daiBalanceOnMaturity;
+
+      if (daiBalanceOnMaturity.gte(BigNumber.from(0)) || cycles === 0) {
         totalDaiUsedToPurchasePTs = totalDaiUsedToPurchasePTs.add(ethers.utils.parseUnits(amount.toString(), DECIMALS));
-        totalDaiEarned = totalDaiEarned.add(daiEarned);
+        totalDaiEarned = totalDaiEarned.add(daiBalanceOnMaturity);
         totalInterestPaid = totalInterestPaid.add(interestDai);
         daiBalance = receipt.daiBalance;
         gasDai = gasDai.add(receipt.gasDai);
@@ -153,18 +156,21 @@ async function fiatLeverage(amount, usesFlashLoan) {
     }
   })();
 
+  // If flash loan, add flash loan fee
+  if (usesFlashLoan) {
+    gasDai = firstCycleGasDai;
+    const flashLoanInterestRate = ethers.utils.parseUnits(FLASH_LOAN_INTEREST.toString(), DECIMALS);
+    const flashLoanInterest = dsMath.wmul(totalDaiUsedToPurchasePTs, flashLoanInterestRate);
+
+    totalDaiEarned = totalDaiEarned.sub(flashLoanInterest);
+    totalDaiEarned = totalDaiEarned.sub(gasDai);
+  }
+
+
   // Gas for buying fiat, settling collateral, redeeming PTs and flash loans if we need it
   const settlementGasData = await getSettlementGasDai(usesFlashLoan);
   gasDai = gasDai.add(settlementGasData);
-  totalDaiEarned = totalDaiEarned.sub(gasDai);
-
-  // If flash loan, add flash loan fee
-  if (usesFlashLoan) {
-    const flashLoanInterestRate = ethers.utils.parseUnits(FLASH_LOAN_INTEREST.toString(), DECIMALS);
-    const flashLoanInterest = dsMath.wmul(totalDaiUsedToPurchasePTs, flashLoanInterestRate);
-    gasDai = gasDai.add(flashLoanInterest);
-    totalDaiEarned = totalDaiEarned.sub(flashLoanInterest);
-  }
+  totalDaiEarned = totalDaiEarned.sub(settlementGasData);
 
   const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
 
@@ -187,6 +193,7 @@ async function fiatLeverage(amount, usesFlashLoan) {
 async function leverageCycle(amount, noGasTracking) {
   const signer = (await ethers.getSigners())[0];
 
+  await mineNextBlock("Start Measuring Eth Balance");
   const startingEth = await signer.getBalance();
 
   const ptBalance = await purchasePTs(amount, 0);
@@ -196,26 +203,23 @@ async function leverageCycle(amount, noGasTracking) {
   const endingEth = await signer.getBalance();
 
   // If using a flash loan we can turn off the gas costs subsequent cycles
-  let gasDai;
-  if (noGasTracking) {
-    gasDai = BigNumber.from(0);
-  } else {
-    gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
-  }
+  gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
+
 
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
-  const daiBalanceOnMaturity = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
-  const daiEarned = daiBalanceOnMaturity.sub(amount);
 
+  let daiBalanceOnMaturity = BigNumber.from(0);
+  if (!noGasTracking) {
+    daiBalanceOnMaturity = daiBalanceOnMaturity.sub(gasDai);
+  }
+  daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(interestDai).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString()))).sub(amount).add(daiBalance);
   console.log("Dai Balance on Maturity: ", ethers.utils.formatUnits(daiBalanceOnMaturity, DECIMALS));
-  console.log("Dai Gained: ", ethers.utils.formatUnits(daiEarned, DECIMALS));
 
   return {
     gasDai,
     interestDai,
     daiBalanceOnMaturity,
     daiBalance,
-    daiEarned,
     ptBalance
   }
 }
@@ -316,7 +320,9 @@ async function collateralizeForFiat() {
   console.log("Normalized Debt: ", normalizedDebt);
 
   const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
+
   const receipt = await proxyFactory.deployFor(signer.address);
+  await mineNextBlock("deployProxy");
   const receiptData = await receipt.wait();
 
   const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
@@ -357,12 +363,13 @@ async function curveSwapFiatForDai() {
   await fiatERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
 
   const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, signer);
-  receipt = await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
-  mineNextBlock('curveSwap');
+
+  await curvePool.exchange_underlying(0, 1, fiatBalance, BigNumber.from("0"), signer.address);
+  await mineNextBlock('curveSwap');
 
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const newDaiBalance = await daiERC20.balanceOf(signer.address);
-  
+
   console.log("Swapped and received Dai: ", ethers.utils.formatUnits(newDaiBalance, DECIMALS));
 
   return newDaiBalance;
@@ -383,6 +390,7 @@ async function getSettlementGasDai(usesFlashLoan) {
   // get gas price through alchemy
   const daiERC20 = await ethers.getContractAt("ERC20", daiAddress, signer);
   const tx = await daiERC20.approve(fiatCurvePoolAddress, MAX_APPROVE);
+  await mineNextBlock('tx gas receipt');
   const receipt = await tx.wait();
   const gasPrice = ethers.utils.parseUnits(receipt.effectiveGasPrice.toString(), "wei");
 
