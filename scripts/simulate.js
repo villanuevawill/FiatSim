@@ -70,7 +70,29 @@ async function simulate(usesFlashLoan) {
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
       runCount++
       const output = await fiatLeverage(i, usesFlashLoan, runCount);
-      serializeAndSave(output, usesFlashLoan, runCount);
+      const serialized = {run: runCount};
+      if (type(cycle) !== "undefined") { serialized["cycle"] = cycle; }
+      for (const [key, value] of Object.entries(output)) {
+        if (value instanceof BigNumber) {
+          serialized[key] = Number(ethers.utils.formatUnits(value, DECIMALS));
+        } else {
+          serialized[key] = value;
+        }
+      }
+      
+      const outputData = [];
+      outputData.push(serialized);
+      console.log("output entry: ", serialized);
+    
+      const data = JSON.stringify(outputData);
+    
+      fs.writeFile(usesFlashLoan ? 'fiatsim_flashloan.json' : "fiatsim_flashloan.json", data, (err) => {
+        if (err) {
+          throw err;
+        }
+        console.log(`run${runCount}: JSON data is saved.`);
+      });
+      
       await resetHardhat();
     }
   })()
@@ -87,31 +109,6 @@ async function resetHardhat() {
         },
       },
     ],
-  });
-}
-
-function serializeAndSave(output, usesFlashLoan, runCount, cycle) {
-  const serialized = {run: runCount};
-  if (type(cycle) !== "undefined") { serialized["cycle"] = cycle; }
-  for (const [key, value] of Object.entries(output)) {
-    if (value instanceof BigNumber) {
-      serialized[key] = Number(ethers.utils.formatUnits(value, DECIMALS));
-    } else {
-      serialized[key] = value;
-    }
-  }
-  
-  const outputData = [];
-  outputData.push(serialized);
-  console.log("output entry: ", serialized);
-
-  const data = JSON.stringify(outputData);
-
-  fs.writeFile(usesFlashLoan ? 'fiatsim.json' : "fiatsim_flashloan.json", data, (err) => {
-    if (err) {
-      throw err;
-    }
-    console.log(`run${runCount}: JSON data is saved.`);
   });
 }
 
@@ -137,7 +134,6 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
   await (async () => {
     while (daiBalanceOnMaturity.gte(BigNumber.from(0))) {
       const receipt = await leverageCycle(daiBalance, usesFlashLoan && cycles > 0, cycles);
-      serializeAndSave(receipt, usesFlashLoan, runCount, cycles);
 
       if (cycles === 0) {
         firstCycleGasDai = receipt.gasDai;
