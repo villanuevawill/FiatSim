@@ -29,19 +29,28 @@ const TERM_MATURITY = 1663361092;
 const YEAR_SECONDS = 31536000;
 const MATURITY_YEAR_FACTOR = (TERM_MATURITY - CURRENT_TIME) / YEAR_SECONDS;
 const FIAT_INTEREST_RATE = .01;
+// This is is just used on maturity for the buyback price
 const FIAT_PRICE_DAI = 1;
+
+const FLASH_LOAN_INTEREST = .0009;
 
 const DAI_BALANCE_START = 10000;
 const DAI_BALANCE_INCREMENT = 2000;
 const DAI_BALANCE_END = 150000;
 
 async function main() {
+  // update to use tasks instead of redundancy
+  await simulate();
+  await simulate(true);
+}
+
+async function simulate(usesFlashLoan) {
   let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
   const outputData = [];
 
   await (async () => {
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
-      const output = await fiatLeverage(i);
+      const output = await fiatLeverage(i, usesFlashLoan);
       const serialized = {};
 
       for (const [key, value] of Object.entries(output)) {
@@ -55,14 +64,13 @@ async function main() {
       outputData.push(serialized);
       console.log("output entry: ", serialized);
 
-      await network.provider.request({
+      await hre.network.provider.request({
         method: "hardhat_reset",
         params: [
           {
             forking: {
               jsonRpcUrl: process.env.ALCHEMY_URL,
               blockNumber: process.env.BLOCK_NUMBER,
-            },
           },
         ],
       });
@@ -72,7 +80,7 @@ async function main() {
   console.log(outputData);
   const data = JSON.stringify(outputData);
 
-  fs.writeFile('fiatsim.json', data, (err) => {
+  fs.writeFile(usesFlashLoan ? 'fiatsim.json' : "fiatsim_flashloan.json", data, (err) => {
     if (err) {
         throw err;
     }
@@ -80,7 +88,7 @@ async function main() {
   });
 }
 
-async function fiatLeverage(amount) {
+async function fiatLeverage(amount, usesFlashLoan) {
   const signer = (await ethers.getSigners())[0];
 
   const startingDaiBalanceFixed = amount;
@@ -93,35 +101,48 @@ async function fiatLeverage(amount) {
   let totalDaiBalance = ethers.utils.parseUnits("0");
   let totalInterestPaid = ethers.utils.parseUnits("0");
   let gasDai = ethers.utils.parseUnits("0");
+  let totalPTsCollateralized = ethers.utils.parseUnits("0");
+  let totalDaiUsedToPurchasePTs = ethers.utils.parseUnits("0");
 
   let daiEarned = BigNumber.from(0);
   let cycles = 0;
 
   await (async () => {
     while (daiEarned.gte(BigNumber.from(0))) {
-      const receipt = await leverageCycle(daiBalance);
+      const receipt = await leverageCycle(daiBalance, usesFlashLoan && cycles > 0);
 
       const {
         interestDai,
         daiBalanceOnMaturity,
+        ptBalance,
       } = receipt;
 
       daiEarned = receipt.daiEarned;
 
       if (daiEarned.gte(BigNumber.from(0))) {
+        totalDaiUsedToPurchasePTs = totalDaiUsedToPurchasePTs.add(ethers.utils.parseUnits(amount.toString(), DECIMALS));
         totalDaiEarned = totalDaiEarned.add(daiEarned);
         totalInterestPaid = totalInterestPaid.add(interestDai);
         daiBalance = receipt.daiBalance;
         gasDai = gasDai.add(receipt.gasDai);
+        totalPTsCollateralized = totalPTsCollateralized.add(ptBalance);
         cycles++;
       }
     }
   })();
 
-  // Gas for buying fiat, settling collateral and redeeming PTs
-  const settlementGasData = await getSettlementGasDai();
+  // Gas for buying fiat, settling collateral, redeeming PTs and flash loans if we need it
+  const settlementGasData = await getSettlementGasDai(usesFlashLoan);
   gasDai = gasDai.add(settlementGasData);
   totalDaiEarned = totalDaiEarned.sub(gasDai);
+
+  // If flash loan, add flash loan fee
+  if (usesFlashLoan) {
+    const flashLoanInterestRate = ethers.utils.parseUnits(FLASH_LOAN_INTEREST.toString(), DECIMALS);
+    const flashLoanInterest = dsMath.wmul(totalDaiUsedToPurchasePTs, flashLoanInterestRate);
+    gasDai = gasDai.add(flashLoanInterest);
+    totalDaiEarned = totalDaiEarned.sub(flashLoanInterest);
+  }
 
   const earnedFixed = Number(ethers.utils.formatUnits(totalDaiEarned, DECIMALS));
 
@@ -136,21 +157,30 @@ async function fiatLeverage(amount) {
     totalDaiEarned,
     totalInterestPaid,
     daiBalance,
+    totalPTsCollateralized,
     netAPY,
   }
 }
 
-async function leverageCycle(amount) {
+async function leverageCycle(amount, noGasTracking) {
   const signer = (await ethers.getSigners())[0];
 
   const startingEth = await signer.getBalance();
 
-  const ptBalance = await purchasePTs(amount);
+  const ptBalance = await purchasePTs(amount, 0);
   const fiatDebt = await collateralizeForFiat();
   const daiBalance = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
-  const gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
+
+  // If using a flash loan we can turn off the gas costs subsequent cycles
+  let gasDai;
+  if (noGasTracking) {
+    gasDai = BigNumber.from(0);
+  } else {
+    gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
+  }
+
   const interestDai = dsMath.wmul(fiatDebt, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
   const daiBalanceOnMaturity = ptBalance.sub(gasDai).sub(interestDai).add(daiBalance).sub(dsMath.wmul(fiatDebt, ethers.utils.parseUnits(Number(FIAT_PRICE_DAI).toString())));
   const daiEarned = daiBalanceOnMaturity.sub(amount);
@@ -164,6 +194,7 @@ async function leverageCycle(amount) {
     daiBalanceOnMaturity,
     daiBalance,
     daiEarned,
+    ptBalance
   }
 }
 
@@ -313,7 +344,7 @@ async function curveSwapFiatForDai() {
   return newDaiBalance;
 }
 
-async function getSettlementGasDai() {
+async function getSettlementGasDai(usesFlashLoan) {
   const signer = (await ethers.getSigners())[0];
 
   // for now just hardcode the amounts
@@ -321,7 +352,8 @@ async function getSettlementGasDai() {
     modifyCollateralAndDebt: ethers.utils.parseUnits("317540", DECIMALS),
     approveDaiCurve: ethers.utils.parseUnits("46458", DECIMALS),
     swapDaiForFiat: ethers.utils.parseUnits("276871", DECIMALS),
-    redeemPTs: ethers.utils.parseUnits("145141", DECIMALS)
+    redeemPTs: ethers.utils.parseUnits("145141", DECIMALS),
+    ...(usesFlashLoan) && {flashLoan: ethers.utils.parseUnits("204493", DECIMALS) },
   };
 
   // get gas price through alchemy
