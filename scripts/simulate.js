@@ -25,7 +25,7 @@ const MAX_APPROVE = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 const DECIMALS = 18;
 const DAI_PRICE_ETH = 0.0004965;
 const ETH_PRICE_DAI = ethers.utils.parseUnits((1/DAI_PRICE_ETH).toString(), DECIMALS);
-const CURRENT_TIME = Math.round((new Date()).getTime() / 1000);
+const CURRENT_TIME = 1651268309 // corresponds with block 14681653
 const TERM_MATURITY = 1663361092;
 const YEAR_SECONDS = 31536000;
 const MATURITY_YEAR_FACTOR = (TERM_MATURITY - CURRENT_TIME) / YEAR_SECONDS;
@@ -38,7 +38,7 @@ const FLASH_LOAN_GAS = 204493;
 
 const DAI_BALANCE_START = 6000; // original 10000
 const DAI_BALANCE_INCREMENT = 2000; // original 2000
-const DAI_BALANCE_END = 50000; // original 50000
+const DAI_BALANCE_END = 270000; // original 270000
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
@@ -275,9 +275,10 @@ async function leverageCycle(amount, cycle) {
   const signer = (await ethers.getSigners())[0];
 
   const startingEth = await signer.getBalance();
+
   const ptBalance = await purchasePTs(amount);
   const fiatBalance = await collateralizeForFiat();
-  const {daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, fiatPoolShare} = await curveSwapFiatForDai();
+  const { daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, fiatPoolShare } = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
 
@@ -304,6 +305,7 @@ async function leverageCycle(amount, cycle) {
 
   return {
     gasDai,
+    startingDaiBalance: amount,
     fiatInterestinDai,
     daiBalanceOnMaturity,
     daiBalance,
@@ -346,7 +348,7 @@ async function seedSigner(daiAmount) {
   await mineNextBlock("Seeding Dai");
   const balanceOfSigner = await daiERC20Whale.balanceOf(signer.address);
 
-  console.log("confirmed transferred balance: ", balanceOfSigner);
+  console.log("confirmed transferred balance: ", ethers.utils.formatUnits(balanceOfSigner, DECIMALS));
 }
 
 async function purchasePTs(amount, staticCall) {
