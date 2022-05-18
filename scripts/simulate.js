@@ -20,6 +20,7 @@ const fiatProxyFactoryAddress = "0x7Ee06e44C4764A49346290CD9a2267DB6daD7214";
 const fiatAddress = "0x586Aa273F262909EEF8fA02d90Ab65F5015e0516";
 const fiatCurvePoolAddress = "0xDB8Cc7eCeD700A4bfFdE98013760Ff31FF9408D8";
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const MAX_APPROVE = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 const DECIMALS = 18;
 const DAI_PRICE_ETH = 0.0004965;
@@ -257,7 +258,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   const startingEth = await signer.getBalance();
   const ptBalance = await purchasePTs(amount);
   const fiatBalance = await collateralizeForFiat();
-  const {daiBalance,effectiveFiatPrice,reservesDai,reservesFiat,fiatPoolShare} = await curveSwapFiatForDai();
+  const {daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, fiatPoolShare} = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
 
@@ -265,7 +266,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
 
   let daiBalanceOnMaturity = noGasTracking ? BigNumber.from(0) : BigNumber.from(0).sub(gasDai);
-  const fiatDebtInDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits(Number(effectiveFiatPrice).toString()));
+  const fiatDebtInDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits(FIAT_PRICE_DAI.toString()));
   const fiatInterestinDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
   daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(fiatInterestinDai).sub(fiatDebtInDai).sub(amount).add(daiBalance);
   const netAPY = daiBalanceOnMaturity/amount/MATURITY_YEAR_FACTOR;
@@ -395,13 +396,16 @@ async function collateralizeForFiat() {
 
   console.log(`Max Debt, Actual: ${hre.ethers.utils.formatUnits(maxDebt,18)}, Normalized: ${hre.ethers.utils.formatUnits(normalizedDebt,18)}`);
 
-  const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
+  const proxyRegistry = await ethers.getContractAt("IPRBProxyRegistry", "0x9b6e12B5d59339a2cA34Af36455BF0A0396069C6");
+  let proxyAddress = await proxyRegistry.getCurrentProxy(signer.address);
 
-  const receipt = await proxyFactory.deployFor(signer.address);
-  await mineNextBlock(`deployProxy`);
-  const receiptData = await receipt.wait();
-
-  const proxyAddress = receiptData.events?.filter(x => x.event == 'DeployProxy')[0].args.proxy;
+  if (proxyAddress === ZERO_ADDRESS) {
+    const proxyFactory = await ethers.getContractAt("IPRBProxyFactory", fiatProxyFactoryAddress);
+    const receipt = await proxyRegistry.deployFor(signer.address);
+    await mineNextBlock(`deployProxy`);
+    const receiptData = await receipt.wait();
+    proxyAddress = await proxyRegistry.getCurrentProxy(signer.address);
+  }
 
   const userProxy = await ethers.getContractAt("IPRBProxy", proxyAddress);
   await ptERC20.approve(proxyAddress, MAX_APPROVE);
