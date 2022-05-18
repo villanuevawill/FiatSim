@@ -34,6 +34,7 @@ const FIAT_PRICE_DAI = 1; // just used on maturity for the buyback price
 const GAS_PRICE = 17; // in gwei
 
 const FLASH_LOAN_INTEREST = .0009;
+const FLASH_LOAN_GAS = 204493;
 
 const DAI_BALANCE_START = 6000; // original 10000
 const DAI_BALANCE_INCREMENT = 2000; // original 2000
@@ -180,6 +181,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         let flashLoanInterestCollateralize;
         let flashLoanInterest;
         if (usesFlashLoan) {
+          gasDai = gasDai.add(ethers.utils.parseUnits(FLASH_LOAN_GAS.toString(), DECIMALS));
           const flashLoanInterestRate = ethers.utils.parseUnits(FLASH_LOAN_INTEREST.toString(), DECIMALS);
           flashLoanInterestCollateralize = dsMath.wmul(totalDaiUsedToPurchasePTs, flashLoanInterestRate);
           const flashLoanInterestSettle = dsMath.wmul(fiatDebtInDai, flashLoanInterestRate);
@@ -489,7 +491,7 @@ async function getSettlementGasDai(usesFlashLoan) {
     swapDaiForFiat: ethers.utils.parseUnits("276871", DECIMALS),
     redeemPTs: ethers.utils.parseUnits("145141", DECIMALS),
     purchasePTs: ethers.utils.parseUnits("123246", DECIMALS),
-    ...(usesFlashLoan) && {flashLoan: ethers.utils.parseUnits("408986", DECIMALS)},
+    ...(usesFlashLoan) && {flashLoan: ethers.utils.parseUnits(FLASH_LOAN_GAS.toString(), DECIMALS)},
   };
 
   let totalGasSpent = BigNumber.from(0);
