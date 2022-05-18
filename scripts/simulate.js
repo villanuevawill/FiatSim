@@ -34,12 +34,16 @@ const FIAT_INTEREST_RATE = .01;
 const FIAT_PRICE_DAI = 1; // just used on maturity for the buyback price
 const GAS_PRICE = 17; // in gwei
 
-const FLASH_LOAN_INTEREST = .0009;
+const FLASH_LOAN_INTEREST = 0; // Currently 0 is offered on Bal and Euler
 const FLASH_LOAN_GAS = 204493;
 
 const DAI_BALANCE_START = 6000; // original 10000
 const DAI_BALANCE_INCREMENT = 2000; // original 2000
 const DAI_BALANCE_END = 270000; // original 270000
+
+const FLASH_LOAN_DAI_BORROWED_START = 6000; // original 25000
+const FLASH_LOAN_DAI_BORROWED_INCREMENT = 15000; // original 10000
+const FLASH_LOAN_DAI_BORROWED_END = 600000; // original 4000000
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
@@ -85,12 +89,21 @@ async function main() {
 }
 
 async function simulate(usesFlashLoan) {
-  let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
+  let daiBalanceStart = DAI_BALANCE_START;
+  let daiBalanceEnd = DAI_BALANCE_END;
+  let daiBalanceIncrement = DAI_BALANCE_INCREMENT;
+
+  if (usesFlashLoan) {
+    daiBalanceStart = FLASH_LOAN_DAI_BORROWED_START;
+    daiBalanceEnd = FLASH_LOAN_DAI_BORROWED_END;
+    daiBalanceIncrement = FLASH_LOAN_DAI_BORROWED_INCREMENT;
+  }
+
   let runCount=0;
   let outputData = [];
 
   await (async () => {
-    for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
+    for (let i = daiBalanceStart; i <= daiBalanceEnd; i += daiBalanceIncrement) {
       runCount++
       const output = await fiatLeverage(i, usesFlashLoan);
 
@@ -176,9 +189,12 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
         // Gas for buying fiat, settling collateral, redeeming PTs and flash loans if we need it
         const settlementGas = await getSettlementGasDai(usesFlashLoan);
-        const ptsBought = await purchasePTs(daiBalance, true);
+        const ptsBought =  await purchasePTs(daiBalance, true);
 
-        let flashLoanInterestCollateralize;
+        let finalDaiEarned = totalDaiEarned.sub(settlementGas).sub(daiBalance).add(ptsBought);
+        const earnedFixed = Number(ethers.utils.formatUnits(finalDaiEarned, DECIMALS));
+        let finalAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
+
         let flashLoanInterest;
         if (usesFlashLoan) {
           gasDai = dsMath.wmul(gasDai.add(ethers.utils.parseUnits(FLASH_LOAN_GAS.toString(), DECIMALS)), GAS_PRICE);
@@ -188,14 +204,8 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
           flashLoanInterest = flashLoanInterestCollateralize.add(flashLoanInterestSettle);
 
           totalDaiEarned = totalDaiEarned.sub(flashLoanInterest);
-        }
-
-        const finalDaiEarned = totalDaiEarned.sub(settlementGas).sub(daiBalance).add(ptsBought);
-        const earnedFixed = Number(ethers.utils.formatUnits(finalDaiEarned, DECIMALS));
-
-        let finalAPY = earnedFixed/startingDaiBalanceFixed/MATURITY_YEAR_FACTOR;
-        if (usesFlashLoan) {
-          startingBalance = flashLoanInterestCollateralize.add(gasDai).add(receipt.fiatInterestinDai);
+          finalDaiEarned = totalDaiEarned.sub(settlementGas);
+          startingBalance = flashLoanInterestCollateralize.add(gasDai).add(receipt.fiatInterestinDai).add(startingDaiBalance).sub(daiBalance);
           finalAPY = dsMath.wdiv(dsMath.wdiv(finalDaiEarned, startingBalance), ethers.utils.parseUnits(MATURITY_YEAR_FACTOR.toString(), DECIMALS));
         }
 
@@ -218,10 +228,10 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
         aggregateCycle = {
           startingDaiBalance: usesFlashLoan ? startingBalance : startingDaiBalance,
-          totalDaiUsedToPurchasePTs: totalDaiUsedToPurchasePTs.add(ptsBought),
+          totalDaiUsedToPurchasePTs: usesFlashLoan ? startingDaiBalance : totalDaiUsedToPurchasePTs.add(ptsBought),
           totalInterestPaid,
           totalGasDai: gasDai.add(settlementGas),
-          totalPTsCollateralized: totalPTsCollateralized.add(ptsBought),
+          totalPTsCollateralized: usesFlashLoan ? totalPTsCollateralized : totalPTsCollateralized.add(ptsBought),
           finalDaiEarned,
           finalAPY,
           leverage: dsMath.wdiv(totalPTsCollateralized, startingPTBalance),
