@@ -54,6 +54,7 @@ async function mineNextBlock(text) {
   await hre.ethers.provider.send("evm_mine", []);
   const block = await hre.ethers.provider.getBlock(blockNumber);
   console.log(`${text} block #${block.number} executed with ${block.transactions.length} transactions at baseFeePerGas ${hre.ethers.utils.formatUnits(block.baseFeePerGas,9)}`);
+  return block;
 }
 
 function serialize(data) {
@@ -86,6 +87,9 @@ async function simulate(usesFlashLoan) {
   let daiBalance = ethers.utils.parseUnits(Number(DAI_BALANCE_START).toString(), DECIMALS);
   let runCount=0;
   let outputData = [];
+
+  await mineNextBlock('no reason');
+  await curveAddLiquidity(500000);
 
   await (async () => {
     for (let i = DAI_BALANCE_START; i <= DAI_BALANCE_END; i += DAI_BALANCE_INCREMENT) {
@@ -265,7 +269,8 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
 
   let daiBalanceOnMaturity = noGasTracking ? BigNumber.from(0) : BigNumber.from(0).sub(gasDai);
-  const fiatDebtInDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits(Number(effectiveFiatPrice).toString()));
+  const priceToPayBackFiat = FIAT_PRICE_DAI; // or effectiveFiatPrice
+  const fiatDebtInDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits(Number(priceToPayBackFiat).toString()));
   const fiatInterestinDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
   daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(fiatInterestinDai).sub(fiatDebtInDai).sub(amount).add(daiBalance);
   const netAPY = daiBalanceOnMaturity/amount/MATURITY_YEAR_FACTOR;
@@ -456,6 +461,70 @@ async function curveSwapFiatForDai() {
   Fiat makes up ${fiatPoolShare}% of the pool`);
 
   return {daiBalance, effectiveFiatPrice, reservesDai, reservesFiat, oldDaiBalance, fiatPoolShare};
+}
+
+async function curveAddLiquidity(amount) {
+  await hre.network.provider.request({
+    method: "hardhat_impersonateAccount",
+    params: [daiWhaleAddress],
+  });
+
+  // Send some ether to the holder so that they can transfer tokens
+  await hre.network.provider.send("hardhat_setBalance", [
+    daiWhaleAddress,
+    ethers.utils.parseEther("10.0").toHexString()
+  ]);
+
+  // approve stuff
+  const daiWhaleSigner = await ethers.getSigner(daiWhaleAddress) // get Dai whale
+  const daiERC20Whale = await ethers.getContractAt("ERC20", daiAddress, daiWhaleSigner);
+  await daiERC20Whale.approve(fiatCurvePoolAddress, MAX_APPROVE); // approve Dai whale for Dai to Curve
+  const fiatERC20Whale = await ethers.getContractAt("ERC20", fiatAddress, daiWhaleSigner);
+  await fiatERC20Whale.approve(fiatCurvePoolAddress, MAX_APPROVE); // approve Dai whale for Fiat to Curve
+  const curvePool = await ethers.getContractAt("ICurveFi", fiatCurvePoolAddress, daiWhaleSigner); // get curve pool w/ Whale signer
+  block = await mineNextBlock(`approve whale`);
+
+  //check pool balances before
+  reservesDai = await curvePool.balances(0);  reservesFiat = await curvePool.balances(1);
+  var fiatPoolShare = dsMath.wdiv(reservesFiat,reservesFiat.add(reservesDai))
+  const amountToSwap = dsMath.wmul(hre.ethers.utils.parseUnits(amount.toString(),18),fiatPoolShare)
+  console.log(`Reserves before: [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDai,18))}, Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiat,18))}] : Fiat share is ${Math.round(hre.ethers.utils.formatUnits(fiatPoolShare,18)*100*10)/10}% of the pool`);
+  reservesDaiBefore = reservesDai; reservesFiatBefore = reservesFiat;
+  console.log(`Amount to swap: ${Math.round(hre.ethers.utils.formatUnits(amountToSwap,18))}`);
+
+  console.log(await curvePool.coins(0)) //fiat
+  let coin1 = await curvePool.coins(1)
+  console.log(coin1) //3crvLP
+  const crvlpERC20Whale = await ethers.getContractAt("ERC20", coin1, daiWhaleSigner);
+  await crvlpERC20Whale.approve(fiatCurvePoolAddress, MAX_APPROVE); // approve Dai whale for 3crvLP to Curve
+  crvBalance = await crvlpERC20Whale.balanceOf(daiWhaleSigner.address)
+  fiatBalance = await fiatERC20Whale.balanceOf(daiWhaleSigner.address)
+  console.log(`initial 3crvLP balance: ${Math.round(hre.ethers.utils.formatUnits(crvBalance,18))}`)
+  console.log(`initial fiat balance: ${Math.round(hre.ethers.utils.formatUnits(fiatBalance,18))}`)
+
+  // add liquidity to curve pool
+  const deadline = Math.round(Date.now() / 1000) + 100; // 100 seconds expiration
+  await curvePool.exchange_underlying(1, 0, amountToSwap, BigNumber.from("0"), daiWhaleSigner.address); // this works
+  // block = await mineNextBlock(`curveAddLiquidity1`);
+  const amountToSwapForLP = dsMath.wdiv(amountToSwap,hre.ethers.utils.parseUnits("2",18))
+  console.log(`amount to swap for LP: ${Math.round(hre.ethers.utils.formatUnits(amountToSwapForLP,18))}`)
+  await curvePool.exchange(0, 1, amountToSwapForLP, BigNumber.from("0")); // this doesn't
+  // tx = await curvePool.add_liquidity([hre.ethers.utils.parseUnits(amount.toString(),18),BigNumber.from("0")], deadline)
+  block = await mineNextBlock(`curveAddLiquidity2`);
+  // console.log(await hre.ethers.provider.getTransaction(block.transactions[0]));
+  // console.log(await hre.ethers.provider.getTransaction(block.transactions[1]));
+  crvBalance = await crvlpERC20Whale.balanceOf(daiWhaleSigner.address)
+  fiatBalance = await fiatERC20Whale.balanceOf(daiWhaleSigner.address)
+  console.log(`final 3crvLP balance: ${Math.round(hre.ethers.utils.formatUnits(crvBalance,18))}`)
+  console.log(`final fiat balance: ${Math.round(hre.ethers.utils.formatUnits(fiatBalance,18))}`)
+
+  // check pool balances after
+  reservesDai = await curvePool.balances(0);  reservesFiat = await curvePool.balances(1);
+  var fiatPoolShare = dsMath.wdiv(reservesFiat,reservesFiat.add(reservesDai))
+  console.log(`Reserves after : [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDai,18))}, Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiat,18))}] : Fiat share is ${Math.round(hre.ethers.utils.formatUnits(fiatPoolShare,18)*100*10)/10}% of the pool`);
+  reservesDaiDelta = reservesDai.sub(reservesDaiBefore);
+  reservesFiatDelta = reservesFiat.sub(reservesFiatBefore);
+  console.log(`Reserves delta : [Dai: ${Math.round(hre.ethers.utils.formatUnits(reservesDaiDelta,18))}, Fiat: ${Math.round(hre.ethers.utils.formatUnits(reservesFiatDelta,18))}]`);
 }
 
 async function getSettlementGasDai(usesFlashLoan) {
