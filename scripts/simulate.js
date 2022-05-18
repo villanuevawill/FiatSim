@@ -236,7 +236,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
     daiBalanceOnMaturity,
     daiBalance,
     ptBalance,
-    fiatDebtinDai,
+    fiatDebtInDai,
     effectiveFiatPrice,
     reservesDai,
     reservesFiat,
