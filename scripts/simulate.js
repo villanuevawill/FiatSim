@@ -43,7 +43,7 @@ const DAI_BALANCE_END = 270000; // original 270000
 
 const FLASH_LOAN_DAI_BORROWED_START = 15000; // original 15000
 const FLASH_LOAN_DAI_BORROWED_INCREMENT = 15000; // original 15000
-const FLASH_LOAN_DAI_BORROWED_END = 350000; // original 600000
+const FLASH_LOAN_DAI_BORROWED_END = 600000; // original 600000
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
@@ -151,6 +151,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
   let gasDai = ethers.utils.parseUnits("0");
   let totalPTsCollateralized = ethers.utils.parseUnits("0");
   let totalDaiUsedToPurchasePTs = ethers.utils.parseUnits("0");
+  let daiBalanceOnMaturity = ethers.utils.parseUnits("0");
   let startingPTBalance = ethers.utils.parseUnits("0");
   let totalDebtInDai = ethers.utils.parseEther("0");
 
@@ -166,7 +167,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         startingPTBalance = receipt.ptBalance;
       }
 
-      let daiBalanceOnMaturity = receipt.daiBalanceOnMaturity;
+      daiBalanceOnMaturity = receipt.daiBalanceOnMaturity;
 
       // count aggregate stats only when we want to 
       if (daiBalanceOnMaturity.gte(BigNumber.from(0)) || cycle === 0) {
@@ -258,9 +259,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
         aggregateCycleData.push(aggregateCycle);
 
-        if (!usesFlashLoan) {
-          cycle++;
-        }
+        cycle++;
       }
 
       // show aggregate stats only on the last loop
