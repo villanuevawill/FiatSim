@@ -201,7 +201,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
           totalDaiUsedToPurchasePTs,
           totalInterestPaid,
           totalGasDai: gasDai.add(settlementGas),
-          totalPTsCollateralized,
+          totalPTsCollateralized: totalPTsCollateralized.add(ptsBought),
           finalDaiEarned,
           finalAPY,
           leverage: dsMath.wdiv(totalPTsCollateralized, startingPTBalance),
