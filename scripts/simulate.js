@@ -204,7 +204,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
 
   const startingEth = await signer.getBalance();
   const ptBalance = await purchasePTs(amount);
-  const fiatDebtInDai = await collateralizeForFiat();
+  const fiatBalance = await collateralizeForFiat();
   const {daiBalance,effectiveFiatPrice,reservesDai,reservesFiat,fiatPoolShare} = await curveSwapFiatForDai();
 
   const endingEth = await signer.getBalance();
@@ -212,11 +212,10 @@ async function leverageCycle(amount, noGasTracking, cycle) {
   // If using a flash loan we can turn off the gas costs subsequent cycles
   gasDai = dsMath.wmul(startingEth.sub(endingEth), ETH_PRICE_DAI);
 
-  const fiatInterestinDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
-
   let daiBalanceOnMaturity = noGasTracking ? BigNumber.from(0) : BigNumber.from(0).sub(gasDai);
-  const fiatDebtCost = dsMath.wmul(fiatDebtInDai, ethers.utils.parseUnits(Number(effectiveFiatPrice).toString()));
-  daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(interestFiat).sub(fiatDebtCost).sub(amount).add(daiBalance);
+  const fiatDebtInDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits(Number(effectiveFiatPrice).toString()));
+  const fiatInterestinDai = dsMath.wmul(fiatBalance, ethers.utils.parseUnits((MATURITY_YEAR_FACTOR * FIAT_INTEREST_RATE * FIAT_PRICE_DAI).toFixed(DECIMALS).toString(), DECIMALS));
+  daiBalanceOnMaturity = daiBalanceOnMaturity.add(ptBalance).sub(fiatInterestinDai).sub(fiatDebtInDai).sub(amount).add(daiBalance);
   const netAPY = daiBalanceOnMaturity/amount/MATURITY_YEAR_FACTOR;
 
   console.log(`cycle${cycle}: profit calculation:
@@ -225,7 +224,7 @@ async function leverageCycle(amount, noGasTracking, cycle) {
     = receive interest : ${Math.round(hre.ethers.utils.formatUnits(ptBalance.sub(amount).toString(),18))}
   - pay interest       : ${Math.round(hre.ethers.utils.formatUnits(fiatInterestinDai.toString(),18))}
     = net interest     : ${Math.round(hre.ethers.utils.formatUnits(ptBalance.sub(amount).sub(fiatInterestinDai).toString(),18))}
-  - pay back FIAT      : ${Math.round(hre.ethers.utils.formatUnits(fiatDebtinDai.toString(),18))}
+  - pay back FIAT      : ${Math.round(hre.ethers.utils.formatUnits(fiatDebtInDai.toString(),18))}
   + leftover Dai       : ${Math.round(hre.ethers.utils.formatUnits(daiBalance.toString(),18))}
   - pay gas            : ${Math.round(hre.ethers.utils.formatUnits(gasDai.toString(),18))}
   = Dai at maturity    : ${Math.round(hre.ethers.utils.formatUnits(daiBalanceOnMaturity.toString(),18))}
