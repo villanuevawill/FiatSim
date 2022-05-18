@@ -38,7 +38,7 @@ const FLASH_LOAN_GAS = 204493;
 
 const DAI_BALANCE_START = 6000; // original 10000
 const DAI_BALANCE_INCREMENT = 2000; // original 2000
-const DAI_BALANCE_END = 200000; // original 50000
+const DAI_BALANCE_END = 50000; // original 50000
 
 async function updateGasPriceIfNecesary(text) {
   feeDataOld = await hre.ethers.provider.getFeeData()
@@ -181,7 +181,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         let flashLoanInterestCollateralize;
         let flashLoanInterest;
         if (usesFlashLoan) {
-          gasDai = gasDai.add(ethers.utils.parseUnits(FLASH_LOAN_GAS.toString(), DECIMALS));
+          gasDai = dsMath.wmul(gasDai.add(ethers.utils.parseUnits(FLASH_LOAN_GAS.toString(), DECIMALS)), GAS_PRICE);
           const flashLoanInterestRate = ethers.utils.parseUnits(FLASH_LOAN_INTEREST.toString(), DECIMALS);
           flashLoanInterestCollateralize = dsMath.wmul(totalDaiUsedToPurchasePTs, flashLoanInterestRate);
           const flashLoanInterestSettle = dsMath.wmul(fiatDebtInDai, flashLoanInterestRate);
