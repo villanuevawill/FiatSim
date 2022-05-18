@@ -177,7 +177,6 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
         // Gas for buying fiat, settling collateral, redeeming PTs and flash loans if we need it
         const settlementGas = await getSettlementGasDai(usesFlashLoan);
         const ptsBought = await purchasePTs(daiBalance, true);
-        totalDaiUsedToPurchasePTs = totalDaiUsedToPurchasePTs.add(ptsBought);
 
         let flashLoanInterestCollateralize;
         let flashLoanInterest;
@@ -219,7 +218,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
         aggregateCycle = {
           startingDaiBalance: usesFlashLoan ? startingBalance : startingDaiBalance,
-          totalDaiUsedToPurchasePTs,
+          totalDaiUsedToPurchasePTs: totalDaiUsedToPurchasePTs.add(ptsBought),
           totalInterestPaid,
           totalGasDai: gasDai.add(settlementGas),
           totalPTsCollateralized: totalPTsCollateralized.add(ptsBought),
