@@ -17,6 +17,7 @@ const balancerVaultAddress = "0xba12222222228d8ba445958a75a0704d566bf2c8";
 const fiatActionAddress = "0x0021DCEeb93130059C2BbBa7DacF14fe34aFF23c";
 const fiatDaiVaultAddress = "0xb6922A39C85a4E838e1499A8B7465BDca2E49491";
 const fiatProxyFactoryAddress = "0x7Ee06e44C4764A49346290CD9a2267DB6daD7214";
+const fiatProxyRegistryAddress = "0x9b6e12B5d59339a2cA34Af36455BF0A0396069C6";
 const fiatAddress = "0x586Aa273F262909EEF8fA02d90Ab65F5015e0516";
 const fiatCurvePoolAddress = "0xDB8Cc7eCeD700A4bfFdE98013760Ff31FF9408D8";
 
@@ -417,7 +418,7 @@ async function collateralizeForFiat() {
 
   console.log(`Max Debt, Actual: ${hre.ethers.utils.formatUnits(maxDebt,18)}, Normalized: ${hre.ethers.utils.formatUnits(normalizedDebt,18)}`);
 
-  const proxyRegistry = await ethers.getContractAt("IPRBProxyRegistry", "0x9b6e12B5d59339a2cA34Af36455BF0A0396069C6");
+  const proxyRegistry = await ethers.getContractAt("IPRBProxyRegistry", fiatProxyRegistryAddress);
   let proxyAddress = await proxyRegistry.getCurrentProxy(signer.address);
 
   if (proxyAddress === ZERO_ADDRESS) {
