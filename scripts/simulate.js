@@ -189,7 +189,6 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
           // If no flash loan, buy PTs with the rest of the DAI on hand.
           // If flash loan, it needs to be paid back.
           ptsBought =  await purchasePTs(daiBalance, true);
-          totalDaiUsedToPurchasePTs = totalDaiUsedToPurchasePTs.add(daiBalance);
           totalPTExposure = totalPTExposure.add(ptsBought);
         }
 
@@ -240,7 +239,7 @@ async function fiatLeverage(amount, usesFlashLoan, runCount) {
 
         aggregateCycle = {
           startingDaiBalance: usesFlashLoan ? flashLoanStartingBalance : startingDaiBalance,
-          totalDaiUsedToPurchasePTs,
+          totalDaiUsedToPurchasePTs: usesFlashLoan ? totalDaiUsedToPurchasePTs : totalDaiUsedToPurchasePTs.add(daiBalance),
           totalInterestPaid,
           totalGasDai: gasDai.add(settlementGas),
           totalPTsCollateralized,

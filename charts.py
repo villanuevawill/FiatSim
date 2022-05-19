@@ -55,6 +55,6 @@ df2 = pd.DataFrame(aggregates)
 df2.to_html('aggregates.html')
 
 df3 = pd.DataFrame(flash_loan_results)
-df3.to_html('flasloan_results.html')
+df3.to_html('flashloan_results.html')
 
 f.close()
