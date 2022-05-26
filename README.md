@@ -1,12 +1,30 @@
-# Fiat Sim
+# FIAT Sim
 
-Simulation project to see the interaction between Element, Fiat and Curve.
+## Setup Instructions
 
-`npx hardhat run scripts/simulate.js`
+Install dependencies
+```sh
+npm install
+```
+
+Set .env
+```sh
+cat example.env > .env
+# edit .env
+```
+
+## Run Simulation
+Simulation project to see the interaction between Element, FIAT and Curve.
+
+```sh
+npx hardhat run scripts/simulate.js
+```
 
 matplot lib graphs and html tables are generated with:
 
-`python charts.py`
+```sh
+python charts.py
+```
 
 See HTML files for generated graphs.
 
